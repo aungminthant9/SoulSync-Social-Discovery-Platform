@@ -70,12 +70,3 @@ SoulSync-Social-Discovery-Platform/
 ├─ README.md               # **You are here**
 └─ LICENSE
 ```
-
-## 🤝 Contributing
-Contributions are welcome! Please follow these steps:
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feat/awesome-feature`).
-3. Commit your changes with clear messages.
-4. Open a Pull Request describing the changes.
----
-*Built with love, design, and AI.*
