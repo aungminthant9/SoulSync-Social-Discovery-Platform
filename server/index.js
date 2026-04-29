@@ -42,6 +42,7 @@ const notificationsRoutes = require('./routes/notifications');
 const vibeCheckRoutes = require('./routes/vibecheck');
 const aiWriterRoutes = require('./routes/aiwriter');
 const adsRoutes = require('./routes/ads');
+const chatRoomsRoutes = require('./routes/chatRooms');
 
 const registerChatHandlers = require('./socket/chat');
 
@@ -60,6 +61,7 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/vibe-check', vibeCheckRoutes);
 app.use('/api/ai-writer', aiWriterRoutes);
 app.use('/api/ads', adsRoutes);
+app.use('/api/chat-rooms', chatRoomsRoutes);
 
 // Register Socket.io chat handlers
 registerChatHandlers(io);

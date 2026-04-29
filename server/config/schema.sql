@@ -21,10 +21,14 @@ CREATE TABLE IF NOT EXISTS users (
   bio TEXT DEFAULT '',
   interests TEXT[] DEFAULT '{}',
   avatar_url TEXT DEFAULT '',
-  credits INTEGER DEFAULT 100,       -- Starting credits
-  points INTEGER DEFAULT 0,          -- Popularity points
-  is_blurred BOOLEAN DEFAULT false,  -- Profile privacy
+  credits INTEGER DEFAULT 100,
+  points INTEGER DEFAULT 0,
+  is_blurred BOOLEAN DEFAULT false,
   is_online BOOLEAN DEFAULT false,
+  is_admin BOOLEAN DEFAULT false,
+  is_suspended BOOLEAN DEFAULT false,
+  is_banned BOOLEAN DEFAULT false,
+  warnings_count INTEGER DEFAULT 0,
   last_seen TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -179,3 +183,70 @@ CREATE TABLE IF NOT EXISTS ad_views (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_ad_views_user ON ad_views(user_id, created_at);
+
+
+
+-- ============================================
+-- 9. COMMUNITY CHAT ROOMS
+-- ============================================
+CREATE TABLE IF NOT EXISTS chat_rooms (
+  id               UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  owner_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name             VARCHAR(60) NOT NULL,
+  purpose          VARCHAR(30) NOT NULL,
+  city             TEXT NOT NULL,
+  country          TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived','blocked')),
+  member_count     INTEGER NOT NULL DEFAULT 1,
+  last_activity_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enforce: one active room per owner
+CREATE UNIQUE INDEX IF NOT EXISTS uq_owner_active_room
+  ON chat_rooms (owner_id)
+  WHERE status = 'active';
+
+-- Enforce: unique name per location (city+country, case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_room_name_location
+  ON chat_rooms (LOWER(name), LOWER(city), LOWER(country))
+  WHERE status = 'active';
+
+-- Enforce: unique purpose per location
+CREATE UNIQUE INDEX IF NOT EXISTS uq_room_purpose_location
+  ON chat_rooms (purpose, LOWER(city), LOWER(country))
+  WHERE status = 'active';
+
+CREATE INDEX IF NOT EXISTS idx_chat_rooms_location ON chat_rooms(city, country);
+CREATE INDEX IF NOT EXISTS idx_chat_rooms_status   ON chat_rooms(status);
+
+-- ============================================
+-- 10. ROOM MESSAGES
+-- ============================================
+CREATE TABLE IF NOT EXISTS room_messages (
+  id         UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  room_id    UUID NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+  sender_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content    TEXT NOT NULL,
+  is_deleted BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_room_messages_room    ON room_messages(room_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_room_messages_sender  ON room_messages(sender_id);
+
+-- ============================================
+-- 11. HELPER RPCs FOR MEMBER COUNT
+-- ============================================
+CREATE OR REPLACE FUNCTION increment_room_members(room_id UUID)
+RETURNS void LANGUAGE sql AS $$
+  UPDATE chat_rooms SET member_count = member_count + 1 WHERE id = room_id;
+$$;
+
+CREATE OR REPLACE FUNCTION decrement_room_members(room_id UUID)
+RETURNS void LANGUAGE sql AS $$
+  UPDATE chat_rooms
+  SET member_count = GREATEST(0, member_count - 1)
+  WHERE id = room_id;
+$$;
+

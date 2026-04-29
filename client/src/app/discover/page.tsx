@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import UserCard, { DiscoverUser } from '@/components/UserCard';
+import RadarWidget from '@/components/RadarWidget';
+import CreateRoomModal from '@/components/CreateRoomModal';
 import {
   Search,
   SlidersHorizontal,
@@ -118,6 +120,7 @@ export default function DiscoverPage() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
+  const [showCreateRoom, setShowCreateRoom] = useState(false);
 
   const [users, setUsers] = useState<DiscoverUser[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
@@ -316,6 +319,13 @@ export default function DiscoverPage() {
               />
             </div>
 
+            {/* Radar Widget */}
+            <RadarWidget
+              userCity={user?.city}
+              userCountry={user?.country}
+              onCreateRoom={() => setShowCreateRoom(true)}
+            />
+
             {/* Filter toggle */}
             <button
               type="button"
@@ -370,6 +380,15 @@ export default function DiscoverPage() {
             </AnimatePresence>
           </div>
         </motion.div>
+
+        {/* Create Room Modal */}
+        <CreateRoomModal
+          open={showCreateRoom}
+          onClose={() => setShowCreateRoom(false)}
+          defaultCity={user?.city ?? ''}
+          defaultCountry={user?.country ?? ''}
+          onCreated={(roomId) => { setShowCreateRoom(false); router.push(`/rooms/${roomId}`); }}
+        />
 
         {/* ── Quick filter chips ────────────────────────────────── */}
         <motion.div
@@ -433,7 +452,7 @@ export default function DiscoverPage() {
                       value={filters.minAge}
                       onChange={(e) => setFilters((f) => ({ ...f, minAge: e.target.value }))}
                       placeholder="18"
-                      className="input-field text-sm"
+                      className="input-field pl-4 text-sm"
                     />
                   </div>
                   {/* Max Age */}
@@ -446,7 +465,7 @@ export default function DiscoverPage() {
                       value={filters.maxAge}
                       onChange={(e) => setFilters((f) => ({ ...f, maxAge: e.target.value }))}
                       placeholder="99"
-                      className="input-field text-sm"
+                      className="input-field pl-4 text-sm"
                     />
                   </div>
                   {/* City */}
@@ -459,7 +478,7 @@ export default function DiscoverPage() {
                       value={filters.city}
                       onChange={(e) => setFilters((f) => ({ ...f, city: e.target.value }))}
                       placeholder="e.g. Yangon"
-                      className="input-field text-sm"
+                      className="input-field pl-4 text-sm"
                     />
                   </div>
                   {/* Country */}
@@ -472,7 +491,7 @@ export default function DiscoverPage() {
                       value={filters.country}
                       onChange={(e) => setFilters((f) => ({ ...f, country: e.target.value }))}
                       placeholder="e.g. Myanmar"
-                      className="input-field text-sm"
+                      className="input-field pl-4 text-sm"
                     />
                   </div>
                 </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
@@ -36,9 +36,17 @@ export default function CanvasPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Auth guard
+  // Cache the token in a ref so a brief null during screen-share
+  // capture startup doesn't unmount the canvas and trigger a 404.
+  const stableToken = useRef<string | null>(token);
   useEffect(() => {
-    if (!authLoading && !user) router.push('/login');
+    if (token) stableToken.current = token;
+  }, [token]);
+
+  // Auth guard — delay redirect until auth has fully loaded to avoid
+  // false positives from the brief loading flash when screen-sharing.
+  useEffect(() => {
+    if (!authLoading && !user && !stableToken.current) router.push('/login');
   }, [user, authLoading, router]);
 
   // Fetch partner info
@@ -137,10 +145,11 @@ export default function CanvasPage() {
 
       {/* ── Canvas ────────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-hidden">
-        {token && user && (
+        {/* Use stableToken so a brief null during screen-share capture doesn't kill the session */}
+        {(token || stableToken.current) && user && matchId && matchId !== 'undefined' && (
           <SoulCanvas
             matchId={matchId}
-            token={token}
+            token={(token || stableToken.current)!}
             userId={user.id}
             partnerName={partner?.name}
           />

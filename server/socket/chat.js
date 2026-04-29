@@ -259,6 +259,141 @@ function registerChatHandlers(io) {
       console.log(`🎨 Canvas session ended by user ${socket.userId} in room ${roomName}`);
     });
 
+    // ══════════════════════════════════════════════════════════════════════
+    // COMMUNITY CHAT ROOMS — location-based group chat
+    // ══════════════════════════════════════════════════════════════════════
+
+    // roomJoin — user joins a community chat room
+    socket.on('roomJoin', async ({ roomId }) => {
+      if (!roomId) return;
+
+      // Verify room exists and is active (graceful on DB errors)
+      const { data: room, error: roomErr } = await supabase
+        .from('chat_rooms')
+        .select('id, status')
+        .eq('id', roomId)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      if (roomErr) {
+        // DB temporarily unavailable — still allow join but log it
+        console.warn(`⚠️  DB error on roomJoin for room ${roomId}:`, roomErr.message);
+      } else if (!room) {
+        // Room genuinely not found / archived
+        return socket.emit('roomError', { message: 'Room not found or has been deleted.' });
+      }
+
+      const roomKey = `room:${roomId}`;
+      socket.join(roomKey);
+
+      // Best-effort DB updates (never block join)
+      supabase.rpc('increment_room_members', { room_id: roomId }).then(null, () => {});
+      supabase
+        .from('chat_rooms')
+        .update({ last_activity_at: new Date().toISOString() })
+        .eq('id', roomId)
+        .then(null, () => {});
+
+      socket.to(roomKey).emit('roomMemberJoined', { userId: socket.userId });
+      console.log(`🏠 User ${socket.userId} joined room ${roomKey}`);
+    });
+
+    // roomLeave — user leaves a community chat room
+    socket.on('roomLeave', async ({ roomId }) => {
+      if (!roomId) return;
+      const roomKey = `room:${roomId}`;
+      socket.leave(roomKey);
+      supabase.rpc('decrement_room_members', { room_id: roomId }).then(null, () => {});
+      socket.to(roomKey).emit('roomMemberLeft', { userId: socket.userId });
+    });
+
+    // roomMessage — send a message to a community chat room
+    socket.on('roomMessage', async ({ roomId, content }) => {
+      if (!roomId || !content?.trim()) return;
+
+      // Verify room is active (graceful on DB errors)
+      const { data: room, error: roomErr } = await supabase
+        .from('chat_rooms')
+        .select('id, status')
+        .eq('id', roomId)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      if (!roomErr && !room) {
+        return socket.emit('roomError', { message: 'Room not found or has been deleted.' });
+      }
+
+      // ── Membership gate: user must have explicitly joined ─────────────────
+      const { data: membership } = await supabase
+        .from('room_members')
+        .select('id')
+        .eq('room_id', roomId)
+        .eq('user_id', socket.userId)
+        .maybeSingle();
+
+      if (!membership) {
+        return socket.emit('roomError', { message: 'You must join this room before sending messages.' });
+      }
+
+      // AI safety moderation
+      const { safe, reason } = await moderateMessage(content.trim());
+      if (!safe) {
+        socket.emit('messageFlagged', { reason, content: content.trim() });
+        return;
+      }
+
+      // Persist message
+      const { data: message, error } = await supabase
+        .from('room_messages')
+        .insert({
+          room_id: roomId,
+          sender_id: socket.userId,
+          content: content.trim(),
+        })
+        .select(`
+          id, content, created_at, is_deleted,
+          sender:sender_id ( id, name, avatar_url )
+        `)
+        .single();
+
+      if (error) {
+        console.error('Room message error:', error);
+        return socket.emit('roomError', { message: 'Failed to send message. Please try again.' });
+      }
+
+      supabase
+        .from('chat_rooms')
+        .update({ last_activity_at: new Date().toISOString() })
+        .eq('id', roomId)
+        .then(null, () => {});
+
+      io.to(`room:${roomId}`).emit('roomNewMessage', message);
+    });
+
+    // roomTyping — broadcast typing indicator within a room
+    socket.on('roomTyping', ({ roomId, isTyping }) => {
+      if (!roomId) return;
+      socket.to(`room:${roomId}`).emit('roomPartnerTyping', { userId: socket.userId, isTyping });
+    });
+
+    // roomDeleted — owner deleted the room; kick all members
+    socket.on('roomDeleted', async ({ roomId }) => {
+      if (!roomId) return;
+
+      const { data: room, error } = await supabase
+        .from('chat_rooms')
+        .select('id, owner_id')
+        .eq('id', roomId)
+        .maybeSingle();
+
+      // Only broadcast if we can verify ownership (skip on DB error)
+      if (error || !room || room.owner_id !== socket.userId) return;
+
+      const roomKey = `room:${roomId}`;
+      io.to(roomKey).emit('roomDeleted');
+      console.log(`🏠 Room ${roomId} deleted by owner ${socket.userId}; all members kicked`);
+    });
+
     // ── disconnect ──────────────────────────────────────────────────────────
     socket.on('disconnect', () => {
       console.log(`🔌 Socket disconnected: ${socket.id} (user ${socket.userId})`);

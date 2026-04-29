@@ -70,23 +70,5 @@ SoulSync-Social-Discovery-Platform/
 ├─ README.md               # **You are here**
 └─ LICENSE
 ```
-
-## 🤝 Contributing
-Contributions are welcome! Please follow these steps:
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feat/awesome-feature`).
-3. Commit your changes with clear messages.
-4. Open a Pull Request describing the changes.
-
-Read our [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
-
-## 📜 License
-This project is licensed under the **MIT License** – see the [LICENSE](LICENSE) file for details.
-
-## 📞 Contact
-**Author:** Aung Min Thant
-**GitHub:** [aungminthant9](https://github.com/aungminthant9)
-**Email:** aung.min.thant@example.com
-
 ---
 *Built with love, design, and AI.*

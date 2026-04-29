@@ -249,6 +249,11 @@ export default function SoulCanvas({ matchId, token, partnerName }: SoulCanvasPr
   const isDrawingRef = useRef(false);
   const currentStroke = useRef<Stroke | null>(null);
   const snapshotRef  = useRef<ImageData | null>(null);
+  // Keep a ref to matchId so socket event closures always use the latest value
+  const matchIdRef   = useRef(matchId);
+  useEffect(() => { matchIdRef.current = matchId; }, [matchId]);
+  // Track true unmount vs re-render to avoid spurious canvasLeave emissions
+  const isUnmountingRef = useRef(false);
 
   const [tool,          setTool]          = useState<Tool>('brush');
   const [color,         setColor]         = useState(COLORS[0]);
@@ -284,9 +289,30 @@ export default function SoulCanvas({ matchId, token, partnerName }: SoulCanvasPr
 
   // ── Socket ────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const socket = io(API_URL, { auth: { token }, transports: ['websocket'] });
-    socket.on('connect',    () => { setConnected(true); socket.emit('canvasJoin', { matchId }); });
+    isUnmountingRef.current = false;
+
+    const socket = io(API_URL, {
+      auth: { token },
+      // Allow polling → websocket upgrade so brief network blips (e.g. screen-share
+      // capture starting) don't immediately kill the connection
+      transports: ['polling', 'websocket'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+    });
+
+    socket.on('connect', () => {
+      setConnected(true);
+      socket.emit('canvasJoin', { matchId: matchIdRef.current });
+    });
+
     socket.on('disconnect', () => setConnected(false));
+    socket.on('reconnect', () => {
+      // Re-join canvas room after reconnection
+      socket.emit('canvasJoin', { matchId: matchIdRef.current });
+    });
+
     socket.on('canvasPartnerJoined', () => setPartnerOnline(true));
     socket.on('canvasPartnerLeft',   () => { setPartnerOnline(false); setPartnerDrawing(false); });
 
@@ -308,12 +334,25 @@ export default function SoulCanvas({ matchId, token, partnerName }: SoulCanvasPr
 
     // canvasEnded — partner (or self) ended the session; navigate back to chat
     socket.on('canvasEnded', () => {
+      const mid = matchIdRef.current;
+      // Guard: only navigate if we have a valid matchId to avoid /chat/undefined
+      if (!mid || mid === 'undefined') return;
       socket.disconnect();
-      router.push(`/chat/${matchId}`);
+      router.push(`/chat/${mid}`);
     });
 
     socketRef.current = socket;
-    return () => { socket.emit('canvasLeave', { matchId }); socket.disconnect(); socketRef.current = null; };
+
+    return () => {
+      isUnmountingRef.current = true;
+      const mid = matchIdRef.current;
+      // Only emit canvasLeave on a true page unmount (not a hot-reload re-render)
+      if (mid && mid !== 'undefined') {
+        socket.emit('canvasLeave', { matchId: mid });
+      }
+      socket.disconnect();
+      socketRef.current = null;
+    };
   }, [token, matchId]);
 
   // ── Drawing ───────────────────────────────────────────────────────────────────

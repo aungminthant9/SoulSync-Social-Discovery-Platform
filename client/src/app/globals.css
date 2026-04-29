@@ -177,7 +177,11 @@ html {
   background: var(--bg-input);
   border: 1px solid var(--border-default);
   border-radius: 0.75rem;
-  padding: 0.7rem 1rem;
+  /* Vertical + right padding only — left padding is controlled
+     per-input via Tailwind pl-* utilities to avoid icon overlap */
+  padding-top: 0.7rem;
+  padding-right: 1rem;
+  padding-bottom: 0.7rem;
   color: var(--text-primary);
   font-size: 0.9rem;
   transition: all 0.25s ease;
