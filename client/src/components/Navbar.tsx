@@ -173,7 +173,7 @@ export default function Navbar() {
           )}
 
           {/* Right Side */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
             {/* Theme Toggle — render icon only after mount to avoid SSR hydration mismatch */}
             <button
               onClick={toggleTheme}
@@ -204,6 +204,23 @@ export default function Navbar() {
                   <span className="font-semibold">{user.credits ?? 0}</span>
                 </div>
 
+                {/* Mobile menu button — placed BEFORE avatar so it's always reachable on narrow screens */}
+                <button
+                  onClick={() => setMobileOpen(!mobileOpen)}
+                  className="md:hidden flex-shrink-0 p-2 rounded-lg transition-colors relative"
+                  style={{ color: 'var(--text-secondary)' }}
+                  aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+                >
+                  {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                  {/* Mobile notification dot */}
+                  {pendingCount > 0 && !mobileOpen && (
+                    <span
+                      className="absolute top-1 right-1 w-2 h-2 rounded-full"
+                      style={{ background: 'var(--color-brand)' }}
+                    />
+                  )}
+                </button>
+
                 {/* User Menu */}
                 <div className="relative" ref={dropdownRef}>
                   <button
@@ -232,7 +249,7 @@ export default function Navbar() {
                       {user.name}
                     </span>
                     <ChevronDown
-                      className={`w-4 h-4 transition-transform ${menuOpen ? 'rotate-180' : ''}`}
+                      className={`hidden sm:block w-4 h-4 transition-transform ${menuOpen ? 'rotate-180' : ''}`}
                       style={{ color: 'var(--text-muted)' }}
                     />
                   </button>
@@ -281,22 +298,6 @@ export default function Navbar() {
                     )}
                   </AnimatePresence>
                 </div>
-
-                {/* Mobile menu button */}
-                <button
-                  onClick={() => setMobileOpen(!mobileOpen)}
-                  className="md:hidden p-2 rounded-lg transition-colors relative"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-                  {/* Mobile notification dot */}
-                  {pendingCount > 0 && !mobileOpen && (
-                    <span
-                      className="absolute top-1 right-1 w-2 h-2 rounded-full"
-                      style={{ background: 'var(--color-brand)' }}
-                    />
-                  )}
-                </button>
               </>
             ) : (
               <div className="flex items-center gap-2">
