@@ -10,14 +10,16 @@ const server = http.createServer(app);
 // Socket.io setup
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    // Strip a possible trailing slash – the Origin header never includes it
+  origin: (process.env.CLIENT_URL?.replace(/\/+$/, '')) || 'http://localhost:3000',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
 
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  // Same trimming for the app‑level CORS middleware
+  origin: (process.env.CLIENT_URL?.replace(/\/+$/, '')) || 'http://localhost:3000',
   credentials: true,
 }));
 app.use(express.json());
