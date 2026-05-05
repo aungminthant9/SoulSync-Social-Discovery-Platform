@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { io, Socket } from 'socket.io-client';
 import ChatBubble, { Message, Reaction } from '@/components/ChatBubble';
 import GiftPicker from '@/components/GiftPicker';
-import { playMessageSound, playCanvasSound } from '@/lib/sounds';
+import { playMessageSound } from '@/lib/sounds';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { Send, Loader2, Heart, ArrowLeft, ExternalLink, PaintbrushIcon, Gift } from 'lucide-react';
@@ -22,9 +22,18 @@ type MatchInfo = {
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
 function Avatar({ name, avatar_url }: { name: string; avatar_url?: string | null }) {
+  const [imgError, setImgError] = useState(false);
   const hue = name ? name.charCodeAt(0) * 137 : 0;
   const bg = `hsl(${hue % 360}, 60%, 55%)`;
-  if (avatar_url) return <img src={avatar_url} alt={name} className="w-9 h-9 rounded-full object-cover shrink-0" />;
+  if (avatar_url && !imgError)
+    return (
+      <img
+        src={avatar_url}
+        alt={name}
+        className="w-9 h-9 rounded-full object-cover shrink-0"
+        onError={() => setImgError(true)}
+      />
+    );
   return (
     <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-sm shrink-0" style={{ background: bg }}>
       {name?.charAt(0).toUpperCase()}
@@ -32,11 +41,6 @@ function Avatar({ name, avatar_url }: { name: string; avatar_url?: string | null
   );
 }
 
-function isSameMinute(a: string, b: string) {
-  const da = new Date(a), db = new Date(b);
-  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() &&
-    da.getDate() === db.getDate() && da.getHours() === db.getHours() && da.getMinutes() === db.getMinutes();
-}
 
 function formatDate(iso: string) {
   const d = new Date(iso), today = new Date();
@@ -61,19 +65,17 @@ export default function ChatConversationPage() {
   const [connected, setConnected] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
-  const [canvasInvite, setCanvasInvite] = useState(false);
-  const canvasInviteTimer = useRef<NodeJS.Timeout | null>(null);
   const [showGiftPicker, setShowGiftPicker] = useState(false);
   const [myCredits, setMyCredits] = useState<number | null>(null);
   const [giftToast, setGiftToast] = useState<{ sticker: string; senderName: string; points: number } | null>(null);
-  const giftToastTimer = useRef<NodeJS.Timeout | null>(null);
+  const giftToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [flaggedWarning, setFlaggedWarning] = useState<string | null>(null);
-  const flaggedTimer = useRef<NodeJS.Timeout | null>(null);
+  const flaggedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auth guard
   useEffect(() => { if (!authLoading && !user) router.push('/login'); }, [user, authLoading, router]);
@@ -95,15 +97,20 @@ export default function ChatConversationPage() {
   // Fetch history
   const fetchHistory = useCallback(async (before?: string) => {
     if (!token || !matchId) return;
-    before ? setLoadingMore(true) : setLoadingHistory(true);
+    if (before) setLoadingMore(true);
+    else setLoadingHistory(true);
     try {
       const url = `/api/messages/${matchId}${before ? `?before=${encodeURIComponent(before)}&limit=50` : '?limit=50'}`;
       const data = await api<{ messages: Message[] }>(url, { token });
       const msgs = data.messages || [];
-      before ? setMessages((prev) => [...msgs, ...prev]) : setMessages(msgs);
+      if (before) setMessages((prev) => [...msgs, ...prev]);
+      else setMessages(msgs);
       setHasMore(msgs.length === 50);
     } catch (err) { console.error(err); }
-    finally { before ? setLoadingMore(false) : setLoadingHistory(false); }
+    finally {
+      if (before) setLoadingMore(false);
+      else setLoadingHistory(false);
+    }
   }, [token, matchId]);
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
@@ -140,13 +147,6 @@ export default function ChatConversationPage() {
     socket.on('partnerTyping', ({ isTyping }: { isTyping: boolean }) => setPartnerTyping(isTyping));
     socket.on('error', ({ message }: { message: string }) => console.error('Socket error:', message));
 
-    // Canvas invite notification — partner opened Soul Canvas
-    socket.on('canvasOpened', () => {
-      setCanvasInvite(true);
-      playCanvasSound();
-      if (canvasInviteTimer.current) clearTimeout(canvasInviteTimer.current);
-      canvasInviteTimer.current = setTimeout(() => setCanvasInvite(false), 8000);
-    });
 
     // Gift received notification
     socket.on('giftReceived', ({ sticker, senderName, receiverId, newCredits, pointsEarned }: {
@@ -164,7 +164,7 @@ export default function ChatConversationPage() {
     });
 
     // AI Safety Shield — message blocked
-    socket.on('messageFlagged', ({ reason }: { reason: string; content: string }) => {
+    socket.on('messageFlagged', ({ reason }: { reason: string }) => {
       const msg = reason ? `Your message was blocked: ${reason}` : 'Your message was blocked by AI Safety Shield.';
       setFlaggedWarning(msg);
       if (flaggedTimer.current) clearTimeout(flaggedTimer.current);
@@ -202,59 +202,10 @@ export default function ChatConversationPage() {
   const handleDelete = (messageId: string) => socketRef.current?.emit('deleteMessage', { messageId, matchId });
   const handleReact = (messageId: string, emoji: string) => socketRef.current?.emit('react', { messageId, matchId, emoji });
 
-  function shouldShowDate(msgs: Message[], i: number) {
-    if (i === 0) return true;
-    return new Date(msgs[i - 1].created_at).toDateString() !== new Date(msgs[i].created_at).toDateString();
-  }
-
   if (authLoading) return <div className="flex-1 flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--color-brand)' }} /></div>;
-
-  // Canvas invite banner (shown over chat when partner opens canvas)
-  const CanvasInviteBanner = canvasInvite ? (
-    <motion.div
-      initial={{ opacity: 0, y: -12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -12 }}
-      className="shrink-0 flex items-center gap-3 px-4 py-2.5 border-b"
-      style={{
-        background: 'linear-gradient(90deg, var(--color-brand-subtle), rgba(42,181,160,0.08))',
-        borderColor: 'var(--color-brand)',
-        borderBottomWidth: '1px',
-      }}
-    >
-      <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-        style={{ background: 'var(--color-brand)' }}>
-        <PaintbrushIcon className="w-4 h-4 text-white" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold leading-none" style={{ color: 'var(--text-primary)' }}>
-          {partner?.name ?? 'Your match'} opened Soul Canvas!
-        </p>
-        <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>Draw together right now</p>
-      </div>
-      <Link
-        href={`/chat/${matchId}/canvas`}
-        onClick={() => setCanvasInvite(false)}
-        className="btn-primary px-3 py-1.5 text-xs shrink-0"
-      >
-        Join Canvas
-      </Link>
-      <button
-        type="button"
-        onClick={() => setCanvasInvite(false)}
-        className="p-1 rounded-lg cursor-pointer transition-colors"
-        style={{ color: 'var(--text-muted)' }}
-      >
-        <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2}>
-          <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" />
-        </svg>
-      </button>
-    </motion.div>
-  ) : null;
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--bg-base)' }}>
-      <AnimatePresence>{CanvasInviteBanner}</AnimatePresence>
 
       {/* ── Chat header ───────────────────────────────────────────────── */}
       <div className="shrink-0 flex items-center gap-3 px-4 py-3 border-b"
@@ -433,7 +384,7 @@ export default function ChatConversationPage() {
                     senderName={partner?.name}
                     senderAvatarUrl={partner?.avatar_url}
                     selfName={user?.name}
-                    selfAvatarUrl={(user as any)?.avatar_url ?? null}
+                    selfAvatarUrl={user?.avatar_url ?? null}
                     isLastInGroup={isLastInGroup}
                     showTimestamp={isLastInGroup}
                     onDelete={handleDelete}

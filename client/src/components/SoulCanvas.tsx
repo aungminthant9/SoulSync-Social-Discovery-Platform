@@ -32,8 +32,11 @@ interface AiScore {
 }
 
 interface SoulCanvasProps {
-  matchId: string; token: string; userId: string; partnerName?: string;
+  matchId: string; token: string; userId: string; userName?: string; partnerName?: string; isAcceptor?: boolean;
 }
+
+type InviteStatus = 'inviting' | 'waiting' | 'drawing' | 'timeout';
+
 
 // ── Colour swatches ───────────────────────────────────────────────────────────
 const COLORS = [
@@ -215,7 +218,7 @@ function ScoreModal({ score, onClose, onDrawAgain }: { score: AiScore; onClose: 
 
         {/* Title */}
         <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
-          "{score.title}"
+          &ldquo;{score.title}&rdquo;
         </h3>
 
         {/* Feedback */}
@@ -241,7 +244,7 @@ function ScoreModal({ score, onClose, onDrawAgain }: { score: AiScore; onClose: 
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
-export default function SoulCanvas({ matchId, token, partnerName }: SoulCanvasProps) {
+export default function SoulCanvas({ matchId, token, userId, userName, partnerName, isAcceptor }: SoulCanvasProps) {
   const router = useRouter();
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const scrollRef    = useRef<HTMLDivElement>(null);
@@ -263,8 +266,10 @@ export default function SoulCanvas({ matchId, token, partnerName }: SoulCanvasPr
   const [partnerDrawing,setPartnerDrawing]= useState(false);
   const [connected,     setConnected]     = useState(false);
   const [showColors,    setShowColors]    = useState(false);
-
   const [showEndConfirm, setShowEndConfirm] = useState(false);
+
+  // Invite flow state — acceptors start directly in 'drawing' mode
+  const [inviteStatus, setInviteStatus] = useState<InviteStatus>(isAcceptor ? 'drawing' : 'inviting');
 
   // AI state
   const [aiPrompt,       setAiPrompt]       = useState<string | null>(null);
@@ -293,8 +298,6 @@ export default function SoulCanvas({ matchId, token, partnerName }: SoulCanvasPr
 
     const socket = io(API_URL, {
       auth: { token },
-      // Allow polling → websocket upgrade so brief network blips (e.g. screen-share
-      // capture starting) don't immediately kill the connection
       transports: ['polling', 'websocket'],
       reconnection: true,
       reconnectionAttempts: 10,
@@ -304,14 +307,38 @@ export default function SoulCanvas({ matchId, token, partnerName }: SoulCanvasPr
 
     socket.on('connect', () => {
       setConnected(true);
-      socket.emit('canvasJoin', { matchId: matchIdRef.current });
+      if (isAcceptor) {
+        // Acceptor skips the invite — join the existing canvas room directly
+        setInviteStatus('drawing');
+        socket.emit('canvasJoin', { matchId: matchIdRef.current });
+      } else {
+        // Inviter sends the invite to the partner
+        socket.emit('canvasInvite', { matchId: matchIdRef.current, inviterName: userName || 'Your match' });
+      }
     });
 
     socket.on('disconnect', () => setConnected(false));
     socket.on('reconnect', () => {
-      // Re-join canvas room after reconnection
       socket.emit('canvasJoin', { matchId: matchIdRef.current });
     });
+
+    // Waiting for partner's response
+    socket.on('canvasInviteWaiting', () => setInviteStatus('waiting'));
+
+    // Partner accepted — join the canvas room and start drawing
+    socket.on('canvasInviteAccepted', () => {
+      setInviteStatus('drawing');
+      socket.emit('canvasJoin', { matchId: matchIdRef.current });
+    });
+
+    // Partner declined — auto-navigate inviter back to chat
+    socket.on('canvasInviteDeclined', () => {
+      socket.disconnect();
+      router.push(`/chat/${matchIdRef.current}`);
+    });
+
+    // 60s elapsed, no response
+    socket.on('canvasInviteTimeout', () => setInviteStatus('timeout'));
 
     socket.on('canvasPartnerJoined', () => setPartnerOnline(true));
     socket.on('canvasPartnerLeft',   () => { setPartnerOnline(false); setPartnerDrawing(false); });
@@ -327,15 +354,12 @@ export default function SoulCanvas({ matchId, token, partnerName }: SoulCanvasPr
       canvasRef.current?.getContext('2d')?.clearRect(0, 0, CANVAS_W, CANVAS_H);
     });
 
-    // AI prompt synced from either user
     socket.on('canvasAiPromptSet', ({ prompt }: { prompt: string }) => {
       setAiPrompt(prompt);
     });
 
-    // canvasEnded — partner (or self) ended the session; navigate back to chat
     socket.on('canvasEnded', () => {
       const mid = matchIdRef.current;
-      // Guard: only navigate if we have a valid matchId to avoid /chat/undefined
       if (!mid || mid === 'undefined') return;
       socket.disconnect();
       router.push(`/chat/${mid}`);
@@ -346,14 +370,13 @@ export default function SoulCanvas({ matchId, token, partnerName }: SoulCanvasPr
     return () => {
       isUnmountingRef.current = true;
       const mid = matchIdRef.current;
-      // Only emit canvasLeave on a true page unmount (not a hot-reload re-render)
       if (mid && mid !== 'undefined') {
         socket.emit('canvasLeave', { matchId: mid });
       }
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [token, matchId]);
+  }, [token, matchId, partnerName]);
 
   // ── Drawing ───────────────────────────────────────────────────────────────────
   const getPos = useCallback((e: React.PointerEvent<HTMLCanvasElement>): Point => {
@@ -493,11 +516,95 @@ export default function SoulCanvas({ matchId, token, partnerName }: SoulCanvasPr
     // Navigation handled by canvasEnded event listener
   };
 
+  // ── Invite status overlay ─────────────────────────────────────────────────────
+  const handleRetryInvite = () => {
+    setInviteStatus('inviting');
+    socketRef.current?.emit('canvasInvite', { matchId, inviterName: partnerName ?? 'You' });
+  };
+
+  const InviteOverlay = () => {
+    if (inviteStatus === 'drawing') return null;
+
+    const config = {
+      inviting: {
+        icon: <Loader2 className="w-10 h-10 animate-spin" style={{ color: 'var(--color-brand)' }} />,
+        title: 'Connecting…',
+        desc: 'Setting up your canvas session.',
+        showRetry: false,
+      },
+      waiting: {
+        icon: (
+          <div className="relative w-20 h-20 flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full animate-ping opacity-20" style={{ background: 'var(--color-brand)' }} />
+            <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: 'rgba(232,96,76,0.12)' }}>
+              <Users className="w-8 h-8" style={{ color: 'var(--color-brand)' }} />
+            </div>
+          </div>
+        ),
+        title: `Waiting for ${partnerName ?? 'your partner'}…`,
+        desc: 'A notification has been sent. They have 60 seconds to join.',
+        showRetry: false,
+      },
+      timeout: {
+        icon: (
+          <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: 'rgba(212,168,83,0.1)' }}>
+            <PhoneOff className="w-8 h-8" style={{ color: 'var(--color-warning)' }} />
+          </div>
+        ),
+        title: 'No response',
+        desc: `${partnerName ?? 'Your partner'} didn't respond in time. Try inviting them again.`,
+        showRetry: true,
+      },
+    } as const;
+
+    const c = config[inviteStatus as keyof typeof config];
+    if (!c) return null;
+
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="absolute inset-0 z-40 flex items-center justify-center"
+        style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)' }}
+      >
+        <motion.div
+          initial={{ scale: 0.9, y: 16 }}
+          animate={{ scale: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 24 }}
+          className="rounded-3xl p-8 max-w-xs w-full mx-4 text-center shadow-2xl"
+          style={{ background: 'var(--bg-card)', border: '1px solid var(--border-default)' }}
+        >
+          <div className="flex justify-center mb-5">{c.icon}</div>
+          <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--text-primary)' }}>{c.title}</h3>
+          <p className="text-sm leading-relaxed mb-6" style={{ color: 'var(--text-muted)' }}>{c.desc}</p>
+          <div className="flex gap-3">
+            {c.showRetry && (
+              <button onClick={handleRetryInvite}
+                className="flex-1 btn-primary py-2.5 text-sm cursor-pointer rounded-xl font-semibold">
+                Invite Again
+              </button>
+            )}
+            <button onClick={() => router.push(`/chat/${matchId}`)}
+              className="flex-1 py-2.5 text-sm cursor-pointer rounded-xl border font-medium"
+              style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-default)', color: 'var(--text-secondary)' }}>
+              Back to Chat
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    );
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────────
   const activePrompt = aiPrompt;
 
   return (
-    <div className="flex flex-col h-full" style={{ background: 'var(--bg-page)' }}>
+    <div className="flex flex-col h-full relative" style={{ background: 'var(--bg-page)' }}>
+
+      {/* ── Invite status overlay (covers canvas while not in drawing state) ── */}
+      <AnimatePresence>
+        {inviteStatus !== 'drawing' && <InviteOverlay />}
+      </AnimatePresence>
 
       {/* ── Top status bar ──────────────────────────────────────────────── */}
       <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-2 border-b"
@@ -522,7 +629,7 @@ export default function SoulCanvas({ matchId, token, partnerName }: SoulCanvasPr
             </div>
           ) : (
             <span className="text-xs hidden sm:inline" style={{ color: 'var(--text-muted)' }}>
-              Click "AI Prompt" to get a drawing challenge!
+              Click &ldquo;AI Prompt&rdquo; to get a drawing challenge!
             </span>
           )}
         </div>

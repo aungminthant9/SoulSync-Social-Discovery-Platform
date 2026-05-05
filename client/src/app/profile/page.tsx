@@ -6,9 +6,11 @@ import { useRouter } from 'next/navigation';
 import { api, uploadFile } from '@/lib/api';
 import { motion } from 'framer-motion';
 import PhotoGallery from '@/components/PhotoGallery';
+import BlockedUsersList from '@/components/BlockedUsersList';
+import DeleteAccountSection from '@/components/DeleteAccountSection';
 import {
   Coins, Star, Calendar, Lock, CheckCircle2, AlertCircle,
-  Loader2, Camera, User, MapPin, FileText, Tag, Gift,
+  Loader2, Camera, User, MapPin, FileText, Gift,
 } from 'lucide-react';
 import HobbyPicker from '@/components/HobbyPicker';
 
@@ -36,7 +38,9 @@ export default function ProfilePage() {
       setSuccess('Profile picture updated!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to upload avatar.');
+      const msg = err instanceof Error ? err.message : 'Failed to upload avatar.';
+      setError(msg);
+      setTimeout(() => setError(''), 4000);
     } finally {
       setAvatarUploading(false);
       if (avatarFileRef.current) avatarFileRef.current.value = '';
@@ -50,10 +54,11 @@ export default function ProfilePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!token) { setError('You are not authenticated. Please log in again.'); return; }
     setError(''); setSuccess(''); setSaving(true);
     try {
-      const interestsArray = Array.isArray(form.interests) ? form.interests : form.interests.split(',').map((i: string) => i.trim()).filter(Boolean);
-      await api('/api/users/me', { method: 'PUT', token: token!, body: { name: form.name, bio: form.bio, interests: interestsArray, city: form.city, country: form.country, is_blurred: form.is_blurred } });
+      const interestsArray = Array.isArray(form.interests) ? form.interests : [];
+      await api('/api/users/me', { method: 'PUT', token, body: { name: form.name, bio: form.bio, interests: interestsArray, city: form.city, country: form.country, is_blurred: form.is_blurred } });
       await refreshUser();
       setSuccess('Profile updated successfully!');
       setTimeout(() => setSuccess(''), 3000);
@@ -78,7 +83,7 @@ export default function ProfilePage() {
     return a;
   })();
 
-  const interestTags = Array.isArray(form.interests) ? form.interests : form.interests.split(',').map((i: string) => i.trim()).filter(Boolean);
+  // interestTags removed — interests are managed entirely by HobbyPicker
 
   return (
     <div className="mesh-bg min-h-screen pb-16">
@@ -253,6 +258,21 @@ export default function ProfilePage() {
           className="p-6">
           <h2 className="text-base font-bold mb-5" style={{ color: 'var(--text-primary)' }}>My Photos</h2>
           <PhotoGallery userId={user.id} editable />
+        </motion.div>
+
+        {/* ── Blocked Users card ───────────────────────────────── */}
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}
+          style={{ borderRadius: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-default)', boxShadow: 'var(--shadow-sm)' }}
+          className="p-6">
+          <BlockedUsersList token={token!} />
+        </motion.div>
+
+        {/* ── Danger Zone card ─────────────────────────────────── */}
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28 }}
+          style={{ borderRadius: '1.25rem', background: 'var(--bg-card)', border: '2px solid rgba(224,82,82,0.2)', boxShadow: 'var(--shadow-sm)' }}
+          className="p-6">
+          <p className="text-xs font-bold uppercase tracking-widest mb-5" style={{ color: 'var(--color-error)' }}>Danger Zone</p>
+          <DeleteAccountSection token={token!} />
         </motion.div>
 
       </div>

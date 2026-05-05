@@ -40,16 +40,26 @@ const RANK_CONFIG: Record<number, { icon: React.ReactNode; bg: string; text: str
 };
 
 function Avatar({ name, avatar_url, size = 10 }: { name: string; avatar_url?: string | null; size?: number }) {
+  const [imgError, setImgError] = useState(false);
   const hue = name ? name.charCodeAt(0) * 137 : 0;
   const bg = `hsl(${hue % 360}, 60%, 52%)`;
   const cls = `w-${size} h-${size} rounded-full object-cover shrink-0 font-bold text-white flex items-center justify-center`;
-  if (avatar_url) return <img src={avatar_url} alt={name} className={`w-${size} h-${size} rounded-full object-cover shrink-0`} />;
+  if (avatar_url && !imgError)
+    return (
+      <img
+        src={avatar_url}
+        alt={name}
+        className={`w-${size} h-${size} rounded-full object-cover shrink-0`}
+        onError={() => setImgError(true)}
+      />
+    );
   return (
     <div className={cls} style={{ background: bg, width: `${size * 4}px`, height: `${size * 4}px`, fontSize: size > 8 ? '1.5rem' : '0.875rem' }}>
       {name?.charAt(0).toUpperCase()}
     </div>
   );
 }
+
 
 export default function LeaderboardPage() {
   const { user, token, loading: authLoading } = useAuth();
@@ -221,6 +231,7 @@ export default function LeaderboardPage() {
 
 // ── Podium card ───────────────────────────────────────────────────────────────
 function PodiumCard({ user: u, rank, delay, isMe }: { user: LeaderboardUser; rank: 1 | 2 | 3; delay: number; isMe: boolean }) {
+  const [imgError, setImgError] = useState(false);
   const cfg = RANK_CONFIG[rank];
   const heights = { 1: 'pt-0', 2: 'pt-8', 3: 'pt-14' };
   const avatarSizes = { 1: 14, 2: 11, 3: 10 };
@@ -250,8 +261,8 @@ function PodiumCard({ user: u, rank, delay, isMe }: { user: LeaderboardUser; ran
               height: `${avatarSizes[rank] * 4}px`,
             }}
           >
-            {u.avatar_url ? (
-              <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
+            {u.avatar_url && !imgError ? (
+              <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" onError={() => setImgError(true)} />
             ) : (
               <div
                 className="w-full h-full flex items-center justify-center font-black text-white"
@@ -263,6 +274,7 @@ function PodiumCard({ user: u, rank, delay, isMe }: { user: LeaderboardUser; ran
           </div>
         </div>
       </Link>
+
 
       {/* Name */}
       <p className="text-[10px] sm:text-xs font-bold text-center max-w-[64px] sm:max-w-[80px] truncate" style={{ color: 'var(--text-primary)' }}>

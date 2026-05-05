@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useEffectEvent, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, X, Check, AlertTriangle, ShieldAlert, ShieldCheck, ShieldX, Info } from 'lucide-react';
+import { Bell, AlertTriangle, ShieldAlert, ShieldCheck, ShieldX, Info } from 'lucide-react';
 
 type Notification = {
   id: string;
@@ -39,7 +39,7 @@ export default function NotificationBell() {
   const [unread, setUnread] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
 
-  const fetchNotifications = useCallback(async () => {
+  const loadNotifications = async () => {
     if (!token) return;
     try {
       const data = await api<{ notifications: Notification[]; unreadCount: number }>(
@@ -48,13 +48,19 @@ export default function NotificationBell() {
       setNotifications(data.notifications);
       setUnread(data.unreadCount);
     } catch { /* silently ignore */ }
-  }, [token]);
+  };
+
+  const fetchNotifications = useEffectEvent(loadNotifications);
 
   useEffect(() => {
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30000);
+    if (!token) return;
+
+    void fetchNotifications();
+    const interval = setInterval(() => {
+      void fetchNotifications();
+    }, 30000);
     return () => clearInterval(interval);
-  }, [fetchNotifications]);
+  }, [token]);
 
   // Close on outside click
   useEffect(() => {
@@ -88,7 +94,7 @@ export default function NotificationBell() {
       {/* Bell button */}
       <button
         id="notification-bell-btn"
-        onClick={() => { setOpen(o => !o); if (!open) fetchNotifications(); }}
+        onClick={() => { setOpen(o => !o); if (!open) void loadNotifications(); }}
         className="p-2 rounded-lg transition-colors relative cursor-pointer"
         style={{ color: 'var(--text-secondary)', background: 'none', border: 'none' }}
         aria-label="Notifications"

@@ -232,6 +232,41 @@ router.get('/', authMiddleware, async (req, res) => {
 });
 
 // ============================================
+// DELETE /api/matches/requests/:requestId — Cancel outgoing request
+// ============================================
+router.delete('/requests/:requestId', authMiddleware, async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const userId = req.user.id;
+
+    // Fetch the request — must be the sender
+    const { data: request, error: reqErr } = await supabase
+      .from('match_requests')
+      .select('id, sender_id, status')
+      .eq('id', requestId)
+      .eq('sender_id', userId)
+      .eq('status', 'pending')
+      .single();
+
+    if (reqErr || !request) {
+      return res.status(404).json({ error: 'Request not found or already handled.' });
+    }
+
+    const { error: delErr } = await supabase
+      .from('match_requests')
+      .delete()
+      .eq('id', requestId);
+
+    if (delErr) throw delErr;
+
+    res.json({ message: 'Request cancelled.' });
+  } catch (err) {
+    console.error('Cancel request error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ============================================
 // DELETE /api/matches/:matchId — Unmatch
 // ============================================
 router.delete('/:matchId', authMiddleware, async (req, res) => {

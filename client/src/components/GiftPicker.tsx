@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, Star, Coins, X } from 'lucide-react';
+import { Loader2, Star, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
@@ -85,8 +85,8 @@ export default function GiftPicker({ matchId, receiverId, receiverName, onClose,
       setCredits(result.newCredits);
       onSent?.(result.newCredits, result.pointsEarned);
       setTimeout(() => onClose(), 2000);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to send gift. Try again.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to send gift. Try again.');
     } finally {
       setSending(null);
     }

@@ -18,6 +18,9 @@ import {
   Sparkles,
   MapPin,
   CalendarDays,
+  Trophy,
+  Clock,
+  Shuffle,
 } from 'lucide-react';
 
 type Pagination = {
@@ -35,6 +38,8 @@ type Filters = {
   country: string;
 };
 
+type SortMode = 'points' | 'newest' | 'random';
+
 const DEFAULT_FILTERS: Filters = {
   name: '',
   minAge: '',
@@ -42,6 +47,27 @@ const DEFAULT_FILTERS: Filters = {
   city: '',
   country: '',
 };
+
+const SORT_MODES: { key: SortMode; label: string; icon: React.ReactNode; description: string }[] = [
+  {
+    key: 'random',
+    label: 'Shuffle',
+    icon: <Shuffle className="w-3.5 h-3.5" />,
+    description: 'Surprise me',
+  },
+  {
+    key: 'points',
+    label: 'Top Rated',
+    icon: <Trophy className="w-3.5 h-3.5" />,
+    description: 'Highest vibes',
+  },
+  {
+    key: 'newest',
+    label: 'New Arrivals',
+    icon: <Clock className="w-3.5 h-3.5" />,
+    description: 'Fresh faces',
+  },
+];
 
 // ── Skeleton card ─────────────────────────────────────────────────────────────
 function SkeletonCard() {
@@ -121,6 +147,8 @@ export default function DiscoverPage() {
   const [appliedFilters, setAppliedFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
   const [showCreateRoom, setShowCreateRoom] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>('random');
+  const [isShuffling, setIsShuffling] = useState(false);
 
   const [users, setUsers] = useState<DiscoverUser[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
@@ -135,13 +163,13 @@ export default function DiscoverPage() {
   }, [user, authLoading, router]);
 
   const fetchUsers = useCallback(
-    async (currentFilters: Filters, page = 1, append = false) => {
+    async (currentFilters: Filters, page = 1, append = false, sort: SortMode = 'random') => {
       if (!token) return;
       if (append) setLoadingMore(true);
       else setLoading(true);
       setError('');
       try {
-        const params = new URLSearchParams({ page: String(page), limit: '18' });
+        const params = new URLSearchParams({ page: String(page), limit: '18', sort });
         if (currentFilters.name) params.set('name', currentFilters.name);
         if (currentFilters.minAge) params.set('minAge', currentFilters.minAge);
         if (currentFilters.maxAge) params.set('maxAge', currentFilters.maxAge);
@@ -165,7 +193,7 @@ export default function DiscoverPage() {
   );
 
   useEffect(() => {
-    if (user && token) fetchUsers(DEFAULT_FILTERS);
+    if (user && token) fetchUsers(DEFAULT_FILTERS, 1, false, 'random');
   }, [user, token, fetchUsers]);
 
   const handleNameChange = (value: string) => {
@@ -174,26 +202,38 @@ export default function DiscoverPage() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setAppliedFilters(next);
-      fetchUsers(next, 1, false);
+      fetchUsers(next, 1, false, sortMode);
     }, 350);
   };
 
   const handleApplyFilters = () => {
     setAppliedFilters(filters);
-    fetchUsers(filters, 1, false);
+    fetchUsers(filters, 1, false, sortMode);
     setShowFilters(false);
   };
 
   const handleResetFilters = () => {
     setFilters(DEFAULT_FILTERS);
     setAppliedFilters(DEFAULT_FILTERS);
-    fetchUsers(DEFAULT_FILTERS, 1, false);
+    fetchUsers(DEFAULT_FILTERS, 1, false, sortMode);
     setShowFilters(false);
   };
 
   const handleLoadMore = () => {
     if (!pagination?.hasMore) return;
-    fetchUsers(appliedFilters, pagination.page + 1, true);
+    fetchUsers(appliedFilters, pagination.page + 1, true, sortMode);
+  };
+
+  const handleSortChange = (mode: SortMode) => {
+    setSortMode(mode);
+    fetchUsers(appliedFilters, 1, false, mode);
+  };
+
+  const handleShuffle = async () => {
+    setIsShuffling(true);
+    await fetchUsers(appliedFilters, 1, false, 'random');
+    setSortMode('random');
+    setTimeout(() => setIsShuffling(false), 600);
   };
 
   // Quick filter chip toggles (open panel + focus relevant field)
@@ -253,6 +293,41 @@ export default function DiscoverPage() {
           <p className="text-sm sm:text-base" style={{ color: 'var(--text-secondary)' }}>
             Find your next meaningful connection — powered by compatibility intelligence.
           </p>
+
+          {/* Sort mode switcher */}
+          <div className="flex items-center gap-2 mt-5 flex-wrap">
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+              Show me
+            </span>
+            {SORT_MODES.map((mode) => (
+              <button
+                key={mode.key}
+                type="button"
+                onClick={() => handleSortChange(mode.key)}
+                title={mode.description}
+                className="flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-200 cursor-pointer"
+                style={
+                  sortMode === mode.key
+                    ? {
+                        background: mode.key === 'random'
+                          ? 'linear-gradient(135deg, var(--color-brand), var(--color-accent))'
+                          : 'var(--color-brand)',
+                        color: 'white',
+                        boxShadow: '0 2px 12px rgba(232,96,76,0.35)',
+                        transform: 'scale(1.05)',
+                      }
+                    : {
+                        background: 'var(--bg-elevated)',
+                        color: 'var(--text-secondary)',
+                        border: '1px solid var(--border-default)',
+                      }
+                }
+              >
+                {mode.icon}
+                {mode.label}
+              </button>
+            ))}
+          </div>
 
           {/* Stats pill */}
           {pagination && !loading && (
@@ -325,6 +400,24 @@ export default function DiscoverPage() {
               userCountry={user?.country}
               onCreateRoom={() => setShowCreateRoom(true)}
             />
+
+            {/* Shuffle button */}
+            <motion.button
+              type="button"
+              onClick={handleShuffle}
+              disabled={loading || isShuffling}
+              title="Shuffle — see new faces"
+              animate={isShuffling ? { rotate: 360 } : { rotate: 0 }}
+              transition={{ duration: 0.5, ease: 'easeInOut' }}
+              className="flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-200 cursor-pointer shrink-0 disabled:opacity-60"
+              style={{
+                background: 'linear-gradient(135deg, var(--color-brand), var(--color-accent))',
+                color: 'white',
+                boxShadow: isShuffling ? '0 0 20px rgba(232,96,76,0.5)' : '0 2px 8px rgba(232,96,76,0.3)',
+              }}
+            >
+              <Shuffle className="w-4 h-4" />
+            </motion.button>
 
             {/* Filter toggle */}
             <button
@@ -586,16 +679,27 @@ export default function DiscoverPage() {
 
         {/* ── User cards grid ──────────────────────────────────── */}
         {!loading && users.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.25 }}
-            className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3"
-          >
-            {users.map((u, i) => (
-              <UserCard key={u.id} user={u} index={i} />
-            ))}
-          </motion.div>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={`${sortMode}-${users[0]?.id}`}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+              className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3"
+            >
+              {users.map((u, i) => (
+                <motion.div
+                  key={u.id}
+                  initial={{ opacity: 0, scale: 0.92 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: i * 0.03, duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <UserCard user={u} index={i} />
+                </motion.div>
+              ))}
+            </motion.div>
+          </AnimatePresence>
         )}
 
         {/* ── Load more ────────────────────────────────────────── */}

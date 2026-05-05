@@ -4,7 +4,21 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "jest --forceExit --detectOpenHandles",
+    "test:coverage": "jest --forceExit --detectOpenHandles --coverage"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
+    "moduleNameMapper": {
+      "../config/supabase": "<rootDir>/tests/__mocks__/supabase.js",
+      "../../config/supabase": "<rootDir>/tests/__mocks__/supabase.js"
+    },
+    "coverageDirectory": "coverage",
+    "coverageReporters": ["text", "lcov"]
   },
   "keywords": [],
   "author": "",
@@ -23,6 +37,9 @@
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "@jest/globals": "^30.3.0",
+    "jest": "^30.3.0",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.2.2"
   }
 }

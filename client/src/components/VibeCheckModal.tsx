@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Sparkles, Copy, Check, MessageCircle, Zap, MapPin, Heart, Battery } from 'lucide-react';
+import { X, Copy, Check, MessageCircle, Zap, MapPin, Heart, Battery } from 'lucide-react';
 import { api } from '@/lib/api';
 
 type VibeResult = {
@@ -68,26 +68,55 @@ function ScoreRing({ score, from, to }: { score: number; from: string; to: strin
 
   return (
     <div style={{ position: 'relative', width: 148, height: 148, margin: '0 auto' }}>
-      <svg width="148" height="148" style={{ transform: 'rotate(-90deg)' }}>
+      <svg width="148" height="148">
         <defs>
+          {/* Ring gradient — rotated so it sweeps along the arc */}
           <linearGradient id="ring-grad" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor={from} />
             <stop offset="100%" stopColor={to} />
           </linearGradient>
+          {/* Score text gradient */}
+          <linearGradient id="score-text-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={from} />
+            <stop offset="100%" stopColor={to} />
+          </linearGradient>
         </defs>
-        <circle cx="74" cy="74" r={R} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" />
-        <circle cx="74" cy="74" r={R} fill="none" stroke="url(#ring-grad)"
+
+        {/* Track */}
+        <circle cx="74" cy="74" r={R}
+          fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10"
+          transform="rotate(-90 74 74)"
+        />
+        {/* Progress arc */}
+        <circle cx="74" cy="74" r={R}
+          fill="none" stroke="url(#ring-grad)"
           strokeWidth="10" strokeLinecap="round"
           strokeDasharray={circ} strokeDashoffset={filled}
+          transform="rotate(-90 74 74)"
           style={{ transition: 'stroke-dashoffset 0.05s linear' }}
         />
-      </svg>
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ fontFamily: '"Fira Code", monospace', fontSize: 34, fontWeight: 800, background: `linear-gradient(135deg, ${from}, ${to})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: 1 }}>
+
+        {/* Score number — SVG text with gradient fill, always visible */}
+        <text
+          x="74" y="70"
+          textAnchor="middle"
+          dominantBaseline="auto"
+          fill="url(#score-text-grad)"
+          style={{ fontFamily: '"Fira Code", monospace', fontSize: 34, fontWeight: 800 }}
+        >
           {displayed}
-        </span>
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 600, letterSpacing: 1 }}>/ 100</span>
-      </div>
+        </text>
+        {/* "/100" label */}
+        <text
+          x="74" y="90"
+          textAnchor="middle"
+          dominantBaseline="auto"
+          fill="rgba(255,255,255,0.5)"
+          style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1 }}
+        >
+          / 100
+        </text>
+      </svg>
     </div>
   );
 }
@@ -259,7 +288,7 @@ export default function VibeCheckModal({ targetId, targetName, targetAvatar, myN
                 style={{ background: `linear-gradient(135deg, ${cfg.from}18, ${cfg.to}10)`, border: `1px solid ${cfg.from}30`, borderRadius: 16, padding: '14px 16px', marginBottom: 20 }}>
                 <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: cfg.from, marginBottom: 8 }}>💬 Suggested Opener</p>
                 <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.85)', lineHeight: 1.6, margin: '0 0 12px', fontStyle: 'italic' }}>
-                  "{result.conversation_starter}"
+                  &ldquo;{result.conversation_starter}&rdquo;
                 </p>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={copy} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>

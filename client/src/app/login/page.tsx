@@ -5,13 +5,28 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Heart, Loader2, AlertCircle, Mail, Lock, Eye, EyeOff, Sparkles, Check } from 'lucide-react';
+import {
+  Heart, Loader2, AlertCircle, Mail, Lock, Eye, EyeOff,
+  Sparkles, Check, ShieldAlert,
+} from 'lucide-react';
 
 const PERKS = [
   'AI-powered compatibility matching',
   'Real-time chat with your connections',
   'Private & safe — you control who sees you',
 ];
+
+// ── Validation helpers ──────────────────────────────────────────
+function validateEmail(v: string) {
+  if (!v) return 'Email address is required.';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'Enter a valid email address.';
+  return '';
+}
+function validatePassword(v: string) {
+  if (!v) return 'Password is required.';
+  if (v.length < 6) return 'Password must be at least 6 characters.';
+  return '';
+}
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -23,19 +38,40 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Field-level validation errors (only shown after blur or submit attempt)
+  const [touched, setTouched] = useState({ email: false, password: false });
+  const [fieldErrors, setFieldErrors] = useState({ email: '', password: '' });
+
+  const touch = (field: 'email' | 'password') => {
+    setTouched((t) => ({ ...t, [field]: true }));
+    if (field === 'email') setFieldErrors((e) => ({ ...e, email: validateEmail(email) }));
+    if (field === 'password') setFieldErrors((e) => ({ ...e, password: validatePassword(password) }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // Run all validations
+    const emailErr = validateEmail(email);
+    const passwordErr = validatePassword(password);
+    setFieldErrors({ email: emailErr, password: passwordErr });
+    setTouched({ email: true, password: true });
+    if (emailErr || passwordErr) return;
+
     setLoading(true);
     try {
       await login(email, password);
       router.push('/discover');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Login failed.');
+      setError(err instanceof Error ? err.message : 'Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
   };
+
+  const inputClass = (field: 'email' | 'password') =>
+    `input-field pl-10 ${field === 'password' ? 'pr-11' : ''} ${touched[field] && fieldErrors[field] ? 'border-red-400 focus:!shadow-[0_0_0_3px_rgba(224,82,82,0.12)]' : ''}`;
 
   return (
     <div className="min-h-screen flex" style={{ background: 'var(--bg-page)' }}>
@@ -112,7 +148,7 @@ export default function LoginPage() {
           <div className="lg:hidden flex items-center gap-2 mb-8">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center"
               style={{ background: 'var(--color-brand)' }}>
-              <Heart className="w-4.5 h-4.5 w-5 h-5 text-white fill-current" />
+              <Heart className="w-5 h-5 text-white fill-current" />
             </div>
             <span className="text-lg font-black" style={{ color: 'var(--text-primary)' }}>SoulSync</span>
           </div>
@@ -126,45 +162,78 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Error */}
+          {/* Global Error */}
           {error && (
             <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
               className="mb-5 p-3.5 rounded-xl flex items-start gap-2.5 text-sm"
               style={{ background: 'rgba(224,82,82,0.08)', border: '1px solid rgba(224,82,82,0.2)', color: 'var(--color-error)' }}>
-              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
               {error}
             </motion.div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             {/* Email */}
             <div>
-              <label className="block text-xs font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
+              <label htmlFor="login-email" className="block text-xs font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
                 Email address
               </label>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
-                  style={{ color: 'var(--text-muted)' }} />
-                <input type="email" required value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  style={{ color: touched.email && fieldErrors.email ? 'var(--color-error)' : 'var(--text-muted)' }} />
+                <input
+                  id="login-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (touched.email) setFieldErrors((fe) => ({ ...fe, email: validateEmail(e.target.value) }));
+                  }}
+                  onBlur={() => touch('email')}
                   placeholder="you@example.com"
-                  className="input-field pl-10"
+                  className={inputClass('email')}
+                  aria-invalid={!!(touched.email && fieldErrors.email)}
+                  aria-describedby={touched.email && fieldErrors.email ? 'email-error' : undefined}
                 />
               </div>
+              {touched.email && fieldErrors.email && (
+                <motion.p id="email-error" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+                  className="mt-1.5 text-xs flex items-center gap-1" style={{ color: 'var(--color-error)' }}>
+                  <AlertCircle className="w-3 h-3 shrink-0" /> {fieldErrors.email}
+                </motion.p>
+              )}
             </div>
 
             {/* Password */}
             <div>
-              <label className="block text-xs font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label htmlFor="login-password" className="block text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                  Password
+                </label>
+                <Link
+                  href="/forgot-password"
+                  className="text-xs font-medium transition-colors hover:underline"
+                  style={{ color: 'var(--color-brand)' }}
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
-                  style={{ color: 'var(--text-muted)' }} />
-                <input type={showPw ? 'text' : 'password'} required value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  style={{ color: touched.password && fieldErrors.password ? 'var(--color-error)' : 'var(--text-muted)' }} />
+                <input
+                  id="login-password"
+                  type={showPw ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (touched.password) setFieldErrors((fe) => ({ ...fe, password: validatePassword(e.target.value) }));
+                  }}
+                  onBlur={() => touch('password')}
                   placeholder="••••••••"
-                  className="input-field pl-10 pr-11"
+                  className={inputClass('password')}
+                  aria-invalid={!!(touched.password && fieldErrors.password)}
+                  aria-describedby={touched.password && fieldErrors.password ? 'password-error' : undefined}
                 />
                 <button type="button" tabIndex={-1}
                   onClick={() => setShowPw((v) => !v)}
@@ -173,10 +242,19 @@ export default function LoginPage() {
                   {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              {touched.password && fieldErrors.password && (
+                <motion.p id="password-error" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+                  className="mt-1.5 text-xs flex items-center gap-1" style={{ color: 'var(--color-error)' }}>
+                  <AlertCircle className="w-3 h-3 shrink-0" /> {fieldErrors.password}
+                </motion.p>
+              )}
             </div>
 
-            <button type="submit" disabled={loading}
-              className="w-full btn-primary py-3.5 text-sm font-bold flex items-center justify-center gap-2 mt-6">
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full btn-primary py-3.5 text-sm font-bold flex items-center justify-center gap-2 mt-6"
+            >
               {loading ? <><Loader2 className="w-4 h-4 animate-spin" />Signing in…</> : 'Sign In'}
             </button>
           </form>

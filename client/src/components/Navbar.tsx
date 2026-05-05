@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useEffectEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePathname } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -31,47 +31,56 @@ export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Fetch pending request count
-  const fetchPendingCount = useCallback(async () => {
+  const fetchPendingCount = useEffectEvent(async () => {
     if (!token) return;
     try {
       const data = await api<{ incoming: { id: string }[] }>('/api/matches/requests', { token });
       setPendingCount(data.incoming?.length ?? 0);
     } catch { /* silently ignore */ }
-  }, [token]);
+  });
 
   // Fetch unread message count
-  const fetchUnreadMessages = useCallback(async () => {
+  const fetchUnreadMessages = useEffectEvent(async () => {
     if (!token) return;
     try {
       const data = await api<{ total: number }>('/api/messages/unread', { token });
       setUnreadMessages(data.total ?? 0);
     } catch { /* silently ignore */ }
-  }, [token]);
+  });
+
+  // Set mounted so theme icon only renders client-side (prevents hydration mismatch)
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
-    if (user && token) {
-      fetchPendingCount();
-      fetchUnreadMessages();
-      const interval = setInterval(() => {
-        fetchPendingCount();
-        fetchUnreadMessages();
-      }, 30000);
-      return () => clearInterval(interval);
-    }
-  }, [user, token, fetchPendingCount, fetchUnreadMessages]);
+    if (!user || !token) return;
+
+    void fetchPendingCount();
+    void fetchUnreadMessages();
+    const interval = setInterval(() => {
+      void fetchPendingCount();
+      void fetchUnreadMessages();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [user, token]);
 
   // Reset counts when visiting relevant pages
   useEffect(() => {
-    if (pathname === '/matches') fetchPendingCount();
+    if (pathname === '/matches') void fetchPendingCount();
     if (pathname?.startsWith('/chat/')) {
       // Mark messages as read — unread count will refresh on next poll
-      setTimeout(fetchUnreadMessages, 1500);
+      const timer = setTimeout(() => {
+        void fetchUnreadMessages();
+      }, 1500);
+      return () => clearTimeout(timer);
     }
-  }, [pathname, fetchPendingCount, fetchUnreadMessages]);
+  }, [pathname]);
 
   // Close dropdown on outside click — must be before any early returns
   useEffect(() => {
@@ -165,18 +174,18 @@ export default function Navbar() {
 
           {/* Right Side */}
           <div className="flex items-center gap-2">
-            {/* Theme Toggle */}
+            {/* Theme Toggle — render icon only after mount to avoid SSR hydration mismatch */}
             <button
               onClick={toggleTheme}
               className="p-2 rounded-lg transition-colors"
               style={{ color: 'var(--text-secondary)' }}
               aria-label="Toggle theme"
             >
-              {theme === 'dark' ? (
+              {mounted && (theme === 'dark' ? (
                 <Sun className="w-[18px] h-[18px]" />
               ) : (
                 <Moon className="w-[18px] h-[18px]" />
-              )}
+              ))}
             </button>
 
             {/* Notification Bell */}

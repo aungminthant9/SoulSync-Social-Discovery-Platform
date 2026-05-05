@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import SoulCanvas from '@/components/SoulCanvas';
@@ -15,10 +15,18 @@ type MatchInfo = {
 };
 
 function Avatar({ name, avatar_url }: { name: string; avatar_url?: string | null }) {
+  const [imgError, setImgError] = useState(false);
   const hue = name ? name.charCodeAt(0) * 137 : 0;
   const bg = `hsl(${hue % 360}, 60%, 55%)`;
-  if (avatar_url)
-    return <img src={avatar_url} alt={name} className="w-8 h-8 rounded-full object-cover shrink-0" />;
+  if (avatar_url && !imgError)
+    return (
+      <img
+        src={avatar_url}
+        alt={name}
+        className="w-8 h-8 rounded-full object-cover shrink-0"
+        onError={() => setImgError(true)}
+      />
+    );
   return (
     <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-sm shrink-0"
       style={{ background: bg }}>
@@ -27,10 +35,13 @@ function Avatar({ name, avatar_url }: { name: string; avatar_url?: string | null
   );
 }
 
+
 export default function CanvasPage() {
   const { matchId } = useParams<{ matchId: string }>();
   const { user, token, loading: authLoading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isAcceptor = searchParams.get('role') === 'acceptor';
 
   const [partner, setPartner] = useState<MatchInfo['user'] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -145,13 +156,14 @@ export default function CanvasPage() {
 
       {/* ── Canvas ────────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-hidden">
-        {/* Use stableToken so a brief null during screen-share capture doesn't kill the session */}
-        {(token || stableToken.current) && user && matchId && matchId !== 'undefined' && (
+        {token && user && matchId && matchId !== 'undefined' && (
           <SoulCanvas
             matchId={matchId}
-            token={(token || stableToken.current)!}
+            token={token}
             userId={user.id}
+            userName={user.name}
             partnerName={partner?.name}
+            isAcceptor={isAcceptor}
           />
         )}
       </div>

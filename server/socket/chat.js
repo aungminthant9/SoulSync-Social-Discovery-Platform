@@ -52,6 +52,9 @@ function registerChatHandlers(io) {
   io.on('connection', (socket) => {
     console.log(`⚡ Socket connected: ${socket.id} (user ${socket.userId})`);
 
+    // Auto-join user-specific room so we can DM this socket by userId from anywhere
+    socket.join(`user:${socket.userId}`);
+
     // ── joinRoom ────────────────────────────────────────────────────────────
     socket.on('joinRoom', async ({ matchId }) => {
       if (!matchId) return;
@@ -66,6 +69,20 @@ function registerChatHandlers(io) {
       if (!matchId || !content?.trim()) return;
       const match = await verifyMember(matchId, socket.userId);
       if (!match) return socket.emit('error', { message: 'Unauthorised.' });
+
+      // ── Block check: neither party may DM the other if blocked ───────────
+      const partnerId = match.user1_id === socket.userId ? match.user2_id : match.user1_id;
+      const { data: blockRow } = await supabase
+        .from('user_blocks')
+        .select('id')
+        .or(
+          `and(blocker_id.eq.${socket.userId},blocked_id.eq.${partnerId}),and(blocker_id.eq.${partnerId},blocked_id.eq.${socket.userId})`
+        )
+        .maybeSingle();
+      if (blockRow) {
+        return socket.emit('error', { message: 'You cannot send messages to this user.' });
+      }
+      // ─────────────────────────────────────────────────────────────────────
 
       // ── AI Safety Shield ──────────────────────────────────────────────────
       const { safe, reason } = await moderateMessage(content.trim());
@@ -183,39 +200,125 @@ function registerChatHandlers(io) {
     // SOUL CANVAS — ephemeral real-time drawing (no DB writes)
     // ══════════════════════════════════════════════════════════════════════
 
-    // canvasJoin — user enters the canvas room for a match
+    // Map of pending invite timers: key = `${matchId}:${inviterUserId}`
+    // (module-level so it survives across event handlers in same process)
+
+    // canvasInvite — inviter opened Soul Canvas; notify partner via chat room
+    socket.on('canvasInvite', async ({ matchId, inviterName }) => {
+      if (!matchId) return;
+      const match = await verifyMember(matchId, socket.userId);
+      if (!match) return socket.emit('error', { message: 'Not part of this match.' });
+
+      const inviteKey = `${matchId}:${socket.userId}`;
+      const TIMEOUT_MS = 60_000; // 60 seconds
+
+      // Clear any existing timer for this pair (re-invite)
+      if (io._canvasInviteTimers?.[inviteKey]) {
+        clearTimeout(io._canvasInviteTimers[inviteKey]);
+      }
+      if (!io._canvasInviteTimers) io._canvasInviteTimers = {};
+
+      // Resolve partner's userId from the match
+      const partnerId = match.user1_id === socket.userId ? match.user2_id : match.user1_id;
+
+      // Deliver directly to partner's personal room — works regardless of which page they're on
+      io.to(`user:${partnerId}`).emit('canvasInviteReceived', {
+        matchId,
+        inviterId: socket.userId,
+        inviterName: inviterName || 'Your match',
+        expiresAt: Date.now() + TIMEOUT_MS,
+      });
+
+      // Tell the inviter: waiting state
+      socket.emit('canvasInviteWaiting', { matchId });
+
+      // Auto-timeout after 60s
+      io._canvasInviteTimers[inviteKey] = setTimeout(() => {
+        delete io._canvasInviteTimers[inviteKey];
+        // Notify inviter that call timed out
+        socket.emit('canvasInviteTimeout', { matchId });
+        // Notify partner that invite expired (dismiss toast)
+        io.to(`user:${partnerId}`).emit('canvasInviteExpired', { matchId, inviterId: socket.userId });
+        console.log(`🎨 Canvas invite timed out for match ${matchId}`);
+      }, TIMEOUT_MS);
+
+      console.log(`🎨 Canvas invite sent by ${socket.userId} → partner ${partnerId} for match ${matchId}`);
+    });
+
+    // canvasInviteAccepted — partner accepted; both join canvas room
+    socket.on('canvasInviteAccepted', async ({ matchId, inviterId }) => {
+      if (!matchId || !inviterId) return;
+      const match = await verifyMember(matchId, socket.userId);
+      if (!match) return socket.emit('error', { message: 'Not part of this match.' });
+
+      // Clear timeout
+      const inviteKey = `${matchId}:${inviterId}`;
+      if (io._canvasInviteTimers?.[inviteKey]) {
+        clearTimeout(io._canvasInviteTimers[inviteKey]);
+        delete io._canvasInviteTimers[inviteKey];
+      }
+
+      const roomName = `canvas:${matchId}`;
+
+      // Join acceptor into canvas room
+      socket.join(roomName);
+
+      // Join ALL of the inviter's sockets into the canvas room
+      // (they may have multiple: SoulCanvas socket + layout socket)
+      const inviterSockets = [...io.sockets.sockets.values()].filter(
+        (s) => s.userId === inviterId
+      );
+      for (const s of inviterSockets) {
+        s.join(roomName);
+      }
+
+      // Notify inviter via their personal room — hits every open socket
+      io.to(`user:${inviterId}`).emit('canvasInviteAccepted', { matchId });
+
+      // Tell acceptor: session is starting
+      socket.emit('canvasSessionStart', { matchId });
+
+      // Mutual online notification
+      io.to(roomName).emit('canvasPartnerJoined', { userId: 'partner' });
+
+      console.log(`🎨 Canvas session started: ${inviterId} ↔ ${socket.userId} in ${roomName}`);
+    });
+
+    // canvasInviteDeclined — partner declined
+    socket.on('canvasInviteDeclined', async ({ matchId, inviterId }) => {
+      if (!matchId || !inviterId) return;
+
+      // Clear timeout
+      const inviteKey = `${matchId}:${inviterId}`;
+      if (io._canvasInviteTimers?.[inviteKey]) {
+        clearTimeout(io._canvasInviteTimers[inviteKey]);
+        delete io._canvasInviteTimers[inviteKey];
+      }
+
+      // Notify inviter via their personal room — hits every open socket including SoulCanvas
+      io.to(`user:${inviterId}`).emit('canvasInviteDeclined', { matchId });
+
+      console.log(`🎨 Canvas invite declined by ${socket.userId} for match ${matchId}`);
+    });
+
+    // canvasJoin — user enters the canvas room directly (post-accept navigation)
     socket.on('canvasJoin', async ({ matchId }) => {
       if (!matchId) return;
       const match = await verifyMember(matchId, socket.userId);
       if (!match) return socket.emit('error', { message: 'Not part of this match.' });
 
       const roomName = `canvas:${matchId}`;
-
-      // Check if partner is ALREADY in the canvas room before this user joins
       const room = io.sockets.adapter.rooms.get(roomName);
       const partnerAlreadyHere = room && room.size > 0;
 
       socket.join(roomName);
-
-      // Notify partner (already on canvas) that this user joined
       socket.to(roomName).emit('canvasPartnerJoined', { userId: socket.userId });
+      if (partnerAlreadyHere) socket.emit('canvasPartnerJoined', { userId: 'partner' });
 
-      // FIX: If partner was already in the room, immediately tell the joiner too
-      if (partnerAlreadyHere) {
-        socket.emit('canvasPartnerJoined', { userId: 'partner' });
-      }
-
-      // One-time invite: also notify partner via the CHAT room (if they're on chat page, not canvas)
-      // Only emit this when 'first person' opens canvas (room was empty before join)
-      if (!partnerAlreadyHere) {
-        socket.to(matchId).emit('canvasOpened', { userId: socket.userId });
-      }
-
-      console.log(`🎨 User ${socket.userId} joined canvas room ${roomName} (partner was ${partnerAlreadyHere ? 'already here' : 'not here'})`);
+      console.log(`🎨 User ${socket.userId} joined canvas room ${roomName}`);
     });
 
     // canvasDraw — broadcast a stroke to room partner only (not sender)
-    // stroke: { tool, color, lineWidth, points: [{x,y}] }
     socket.on('canvasDraw', ({ matchId, stroke }) => {
       if (!matchId || !stroke) return;
       socket.to(`canvas:${matchId}`).emit('canvasStroke', { stroke });
@@ -242,13 +345,11 @@ function registerChatHandlers(io) {
       io.to(matchId).emit('canvasAiPromptSet', { prompt });
     });
 
-    // canvasEnd — one user ends the session for BOTH (like hanging up a call)
+    // canvasEnd — one user ends the session for BOTH
     socket.on('canvasEnd', ({ matchId }) => {
       if (!matchId) return;
       const roomName = `canvas:${matchId}`;
-      // Notify ALL users in the canvas room (including sender) so everyone navigates away
       io.to(roomName).emit('canvasEnded', { by: socket.userId });
-      // Remove all sockets from the canvas room
       const room = io.sockets.adapter.rooms.get(roomName);
       if (room) {
         for (const socketId of room) {

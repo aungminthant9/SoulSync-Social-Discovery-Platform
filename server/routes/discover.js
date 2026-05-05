@@ -18,6 +18,7 @@ router.get('/', authMiddleware, async (req, res) => {
       country = '',
       page = 1,
       limit = 20,
+      sort = 'points', // 'points' | 'newest' | 'random'
     } = req.query;
 
     // Fetch existing matches to exclude matched users from results
@@ -26,11 +27,21 @@ router.get('/', authMiddleware, async (req, res) => {
       .select('user1_id, user2_id')
       .or(`user1_id.eq.${req.user.id},user2_id.eq.${req.user.id}`);
 
-    // Build set of IDs to exclude: self + all matched users
+    // Fetch block relationships (both directions) to exclude them
+    const { data: blocks } = await supabase
+      .from('user_blocks')
+      .select('blocker_id, blocked_id')
+      .or(`blocker_id.eq.${req.user.id},blocked_id.eq.${req.user.id}`);
+
+    // Build set of IDs to exclude: self + all matched + all blocked users
     const excludedIds = new Set([req.user.id]);
     (existingMatches || []).forEach((m) => {
       if (m.user1_id !== req.user.id) excludedIds.add(m.user1_id);
       if (m.user2_id !== req.user.id) excludedIds.add(m.user2_id);
+    });
+    (blocks || []).forEach((b) => {
+      if (b.blocker_id !== req.user.id) excludedIds.add(b.blocker_id);
+      if (b.blocked_id !== req.user.id) excludedIds.add(b.blocked_id);
     });
 
     // Build Supabase query — exclude self and matched users
@@ -54,7 +65,16 @@ router.get('/', authMiddleware, async (req, res) => {
       query = query.ilike('country', `%${country.trim()}%`);
     }
 
-    const { data: users, error } = await query.order('points', { ascending: false });
+    // Apply server-side ordering (random handled later in-memory)
+    if (sort === 'newest') {
+      query = query.order('created_at', { ascending: false });
+    } else if (sort === 'random') {
+      query = query.order('id', { ascending: true }); // stable fetch; shuffle in-memory
+    } else {
+      query = query.order('points', { ascending: false });
+    }
+
+    const { data: users, error } = await query;
 
     if (error) {
       console.error('Discover query error:', error);
@@ -83,6 +103,14 @@ router.get('/', authMiddleware, async (req, res) => {
         if (age === null) return false;
         return age >= min && age <= max;
       });
+    }
+
+    // Shuffle in-memory when sort=random (Fisher-Yates)
+    if (sort === 'random') {
+      for (let i = filtered.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [filtered[i], filtered[j]] = [filtered[j], filtered[i]];
+      }
     }
 
     // Total count before pagination

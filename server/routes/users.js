@@ -1,9 +1,17 @@
 const express = require('express');
 const multer = require('multer');
+const { createClient } = require('@supabase/supabase-js');
 const supabase = require('../config/supabase');
 const authMiddleware = require('../middleware/auth');
 
 const router = express.Router();
+
+// Admin client — needed for deleting auth.users entries
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  { auth: { autoRefreshToken: false, persistSession: false } }
+);
 
 const AVATAR_BUCKET = 'avatars';
 
@@ -227,6 +235,57 @@ router.post('/me/avatar', authMiddleware, avatarUpload.single('avatar'), async (
   } catch (err) {
     console.error('Avatar upload error:', err);
     res.status(500).json({ error: err.message || 'Internal server error.' });
+  }
+});
+
+// ============================================
+// DELETE /api/users/me — Permanently delete own account
+// ============================================
+router.delete('/me', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userEmail = req.user.email;
+
+    // Step 1: Remove avatar file from storage (best-effort, non-fatal)
+    try {
+      const { data: files } = await supabase.storage
+        .from(AVATAR_BUCKET)
+        .list(userId);
+      if (files && files.length > 0) {
+        const paths = files.map((f) => `${userId}/${f.name}`);
+        await supabase.storage.from(AVATAR_BUCKET).remove(paths);
+      }
+    } catch {
+      // Non-fatal — storage cleanup failure won't block account deletion
+    }
+
+    // Step 2: Delete from our custom users table
+    // Cascading FKs will remove: blocks, matches, messages, reports, etc.
+    const { error: dbError } = await supabase
+      .from('users')
+      .delete()
+      .eq('id', userId);
+
+    if (dbError) {
+      console.error('Delete user DB error:', dbError);
+      return res.status(500).json({ error: 'Failed to delete account.' });
+    }
+
+    // Step 3: Remove from Supabase Auth (find by email first)
+    try {
+      const { data: authList } = await supabaseAdmin.auth.admin.listUsers();
+      const authUser = (authList?.users || []).find((u) => u.email === userEmail);
+      if (authUser) {
+        await supabaseAdmin.auth.admin.deleteUser(authUser.id);
+      }
+    } catch {
+      // Non-fatal — the DB row is already gone
+    }
+
+    res.json({ message: 'Account permanently deleted.' });
+  } catch (err) {
+    console.error('Delete account error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 

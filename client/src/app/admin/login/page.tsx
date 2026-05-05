@@ -23,8 +23,8 @@ export default function AdminLoginPage() {
     try {
       await login(email, password);
       // Auth context will re-run useEffect above
-    } catch (err: any) {
-      setError(err?.message || 'Invalid credentials.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Invalid credentials.');
     } finally {
       setSubmitting(false);
     }

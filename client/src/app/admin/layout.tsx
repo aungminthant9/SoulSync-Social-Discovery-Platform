@@ -20,26 +20,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [authorized, setAuthorized] = useState<boolean | null>(null);
 
   useEffect(() => {
-    if (loading) return;
-    if (!user || !token) { router.push('/admin/login'); return; }
-    if (!user.is_admin) { setAuthorized(false); return; }
-    setAuthorized(true);
-  }, [user, token, loading, router]);
+    if (pathname === '/admin/login' || loading) return;
+    if (!user || !token) router.push('/admin/login');
+  }, [user, token, loading, pathname, router]);
 
   // Skip auth check on login page
   if (pathname === '/admin/login') return <>{children}</>;
 
-  if (loading || authorized === null) return (
+  if (loading || !user || !token) return (
     <div style={{ background: '#020617', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ width: 40, height: 40, border: '3px solid #1E293B', borderTopColor: '#22C55E', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 
-  if (authorized === false) return (
+  if (!user.is_admin) return (
     <div style={{ background: '#020617', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, fontFamily: 'Fira Sans, sans-serif' }}>
       <Shield style={{ width: 56, height: 56, color: '#EF4444' }} />
       <h1 style={{ color: '#F8FAFC', fontSize: 24, fontWeight: 700, margin: 0 }}>Access Denied</h1>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useEffectEvent, useRef, useState, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { io, Socket } from 'socket.io-client';
@@ -26,9 +26,18 @@ type Props = {
 };
 
 function Avatar({ name, avatar_url }: { name: string; avatar_url?: string | null }) {
+  const [imgError, setImgError] = useState(false);
   const hue = name ? name.charCodeAt(0) * 137 : 0;
   const bg = `hsl(${hue % 360}, 60%, 55%)`;
-  if (avatar_url) return <img src={avatar_url} alt={name} className="w-8 h-8 rounded-full object-cover" />;
+  if (avatar_url && !imgError)
+    return (
+      <img
+        src={avatar_url}
+        alt={name}
+        className="w-8 h-8 rounded-full object-cover"
+        onError={() => setImgError(true)}
+      />
+    );
   return (
     <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-sm shrink-0" style={{ background: bg }}>
       {name.charAt(0).toUpperCase()}
@@ -36,9 +45,6 @@ function Avatar({ name, avatar_url }: { name: string; avatar_url?: string | null
   );
 }
 
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
 
 function shouldShowDate(msgs: Message[], i: number) {
   if (i === 0) return true;
@@ -58,7 +64,7 @@ export default function ChatDrawer({ matchId, partner, onClose, onUnread }: Prop
   const socketRef = useRef<Socket | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Mark messages as read
   const markRead = useCallback(() => {
@@ -67,15 +73,26 @@ export default function ChatDrawer({ matchId, partner, onClose, onUnread }: Prop
     onUnread?.(matchId, 0);
   }, [token, matchId, onUnread]);
 
+  const loadHistory = useEffectEvent(async () => {
+    if (!token || !matchId) return;
+
+    setLoading(true);
+    try {
+      const data = await api<{ messages: Message[] }>(`/api/messages/${matchId}?limit=50`, { token });
+      setMessages(data.messages || []);
+      markRead();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  });
+
   // Fetch history
   useEffect(() => {
     if (!token || !matchId) return;
-    setLoading(true);
-    api<{ messages: Message[] }>(`/api/messages/${matchId}?limit=50`, { token })
-      .then((d) => { setMessages(d.messages || []); markRead(); })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [token, matchId, markRead]);
+    void loadHistory();
+  }, [token, matchId]);
 
   // Auto-scroll
   useEffect(() => {

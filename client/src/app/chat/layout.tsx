@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useEffectEvent, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { io } from 'socket.io-client';
 import CreateRoomModal from '@/components/CreateRoomModal';
+import CanvasInviteToast, { type CanvasInvitePayload } from '@/components/CanvasInviteToast';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
@@ -45,10 +46,20 @@ const PURPOSE_COLORS: Record<string, string> = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function Avatar({ name, avatar_url, size = 10 }: { name: string; avatar_url?: string | null; size?: number }) {
+  const [imgError, setImgError] = useState(false);
   const hue = name ? name.charCodeAt(0) * 137 : 0;
   const bg = `hsl(${hue % 360}, 60%, 55%)`;
   const dim = `${size * 4}px`;
-  if (avatar_url) return <img src={avatar_url} alt={name} className="rounded-full object-cover shrink-0" style={{ width: dim, height: dim }} />;
+  if (avatar_url && !imgError)
+    return (
+      <img
+        src={avatar_url}
+        alt={name}
+        className="rounded-full object-cover shrink-0"
+        style={{ width: dim, height: dim }}
+        onError={() => setImgError(true)}
+      />
+    );
   return (
     <div className="rounded-full flex items-center justify-center font-bold text-white shrink-0"
       style={{ width: dim, height: dim, background: bg, fontSize: size < 9 ? '0.8rem' : '1rem' }}>
@@ -56,6 +67,7 @@ function Avatar({ name, avatar_url, size = 10 }: { name: string; avatar_url?: st
     </div>
   );
 }
+
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -171,18 +183,23 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
   const [loadingRooms, setLoadingRooms] = useState(false);
   const [showCreateRoom, setShowCreateRoom] = useState(false);
 
+  // Canvas invite state (partner side)
+  const [canvasInvite, setCanvasInvite] = useState<CanvasInvitePayload | null>(null);
+
   const socketRef = useRef<ReturnType<typeof io> | null>(null);
 
-  const fetchConversations = useCallback(async () => {
+  const loadConversations = async () => {
     if (!token) return;
     try {
       const data = await api<{ conversations: Conversation[] }>('/api/messages/conversations', { token });
       setConversations(data.conversations || []);
     } catch { /* silent */ }
     setLoadingConvs(false);
-  }, [token]);
+  };
 
-  const fetchRooms = useCallback(async () => {
+  const fetchConversations = useEffectEvent(loadConversations);
+
+  const loadRooms = async () => {
     if (!token) return;
     setLoadingRooms(true);
     try {
@@ -193,33 +210,71 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
       setRooms(data.rooms || []);
     } catch { /* silent */ }
     setLoadingRooms(false);
-  }, [token, user?.city, user?.country]);
+  };
+
+  const fetchRooms = useEffectEvent(loadRooms);
 
   useEffect(() => {
-    if (user && token) {
-      fetchConversations();
-      const interval = setInterval(fetchConversations, 15000);
-      return () => clearInterval(interval);
-    }
-  }, [user, token, fetchConversations]);
+    if (!user || !token) return;
+
+    void fetchConversations();
+    const interval = setInterval(() => {
+      void fetchConversations();
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [user, token]);
 
   // Load rooms when tab is selected
   useEffect(() => {
     if (activeTab === 'rooms' && token && user) {
-      fetchRooms();
+      void fetchRooms();
     }
-  }, [activeTab, token, user, fetchRooms]);
+  }, [activeTab, token, user]);
 
-  // Refresh conversation list when a new message arrives (from any room)
+  // Refresh conversation list when a new message arrives;
+  // also listen for canvas invite events (partner side)
   useEffect(() => {
     if (!token) return;
     const socket = io(API_URL, { auth: { token }, transports: ['websocket'] });
+
     socket.on('newMessage', () => {
-      setTimeout(fetchConversations, 500);
+      setTimeout(() => {
+        void fetchConversations();
+      }, 500);
     });
+
+    // Partner receives a canvas invite
+    socket.on('canvasInviteReceived', (payload: CanvasInvitePayload) => {
+      setCanvasInvite(payload);
+    });
+
+    // Invite expired (60s elapsed without response)
+    socket.on('canvasInviteExpired', ({ inviterId }: { inviterId: string }) => {
+      setCanvasInvite((prev) => (prev?.inviterId === inviterId ? null : prev));
+    });
+
     socketRef.current = socket;
     return () => { socket.disconnect(); socketRef.current = null; };
-  }, [token, fetchConversations]);
+  }, [token]);
+
+  const handleInviteAccept = (invite: CanvasInvitePayload) => {
+    setCanvasInvite(null);
+    socketRef.current?.emit('canvasInviteAccepted', {
+      matchId: invite.matchId,
+      inviterId: invite.inviterId,
+    });
+    // ?role=acceptor tells SoulCanvas to skip re-inviting and join directly
+    router.push(`/chat/${invite.matchId}/canvas?role=acceptor`);
+  };
+
+  const handleInviteDecline = (invite: CanvasInvitePayload) => {
+    setCanvasInvite(null);
+    socketRef.current?.emit('canvasInviteDeclined', {
+      matchId: invite.matchId,
+      inviterId: invite.inviterId,
+    });
+  };
 
   useEffect(() => {
     if (!authLoading && !user) router.push('/login');
@@ -438,9 +493,16 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
         onCreated={(roomId) => {
           setShowCreateRoom(false);
           setActiveTab('rooms');
-          fetchRooms();
+          void loadRooms();
           router.push(`/rooms/${roomId}`);
         }}
+      />
+
+      {/* Canvas invite toast — visible to the partner while they're anywhere in /chat */}
+      <CanvasInviteToast
+        invite={canvasInvite}
+        onAccept={handleInviteAccept}
+        onDecline={handleInviteDecline}
       />
     </div>
   );

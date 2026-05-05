@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Check,
   X,
+  XCircle,
   Loader2,
   Users,
   Star,
@@ -56,11 +57,20 @@ type Match = {
 // ─── Avatar (module-level) ────────────────────────────────────────────────────
 
 function Avatar({ user, size = 12 }: { user: RequestUser; size?: number }) {
+  const [imgError, setImgError] = useState(false);
   const hue = user.name ? user.name.charCodeAt(0) * 137 : 0;
   const bg = `hsl(${hue % 360}, 60%, 55%)`;
   const dim = `${size * 4}px`;
-  if (user.avatar_url) {
-    return <img src={user.avatar_url} alt={user.name} className="rounded-full object-cover" style={{ width: dim, height: dim }} />;
+  if (user.avatar_url && !imgError) {
+    return (
+      <img
+        src={user.avatar_url}
+        alt={user.name}
+        className="rounded-full object-cover"
+        style={{ width: dim, height: dim }}
+        onError={() => setImgError(true)}
+      />
+    );
   }
   return (
     <div className="rounded-full flex items-center justify-center font-bold text-white shrink-0"
@@ -69,6 +79,7 @@ function Avatar({ user, size = 12 }: { user: RequestUser; size?: number }) {
     </div>
   );
 }
+
 
 // ─── EmptyState (module-level) ────────────────────────────────────────────────
 
@@ -128,9 +139,16 @@ function IncomingCard({ req, isResponding, respondingDisabled, onAccept, onRejec
 
 // ─── OutgoingCard (module-level) ──────────────────────────────────────────────
 
-function OutgoingCard({ req }: { req: OutgoingRequest }) {
+type OutgoingCardProps = {
+  req: OutgoingRequest;
+  isCancelling: boolean;
+  cancellingDisabled: boolean;
+  onCancel: () => void;
+};
+
+function OutgoingCard({ req, isCancelling, cancellingDisabled, onCancel }: OutgoingCardProps) {
   return (
-    <motion.div layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+    <motion.div layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 16 }}
       className="card p-4 flex items-center gap-4">
       <Avatar user={req.receiver} size={11} />
       <div className="flex-1 min-w-0">
@@ -141,10 +159,22 @@ function OutgoingCard({ req }: { req: OutgoingRequest }) {
             {[req.receiver.city, req.receiver.country].filter(Boolean).join(', ')}
           </p>
         )}
+        <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>Request pending…</p>
       </div>
-      <span className="badge" style={{ background: 'var(--color-accent-subtle)', color: 'var(--color-accent)', fontSize: '0.7rem' }}>
-        <Clock className="w-3 h-3" /> Pending
-      </span>
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="badge" style={{ background: 'var(--color-accent-subtle)', color: 'var(--color-accent)', fontSize: '0.7rem' }}>
+          <Clock className="w-3 h-3" /> Pending
+        </span>
+        <button
+          onClick={onCancel}
+          disabled={cancellingDisabled}
+          title="Cancel request"
+          className="w-8 h-8 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
+          style={{ background: 'rgba(224,82,82,0.1)', color: 'var(--color-error)' }}
+        >
+          {isCancelling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
+        </button>
+      </div>
     </motion.div>
   );
 }
@@ -217,6 +247,7 @@ export default function MatchesPage() {
   const [loading, setLoading] = useState(true);
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [unmatchingId, setUnmatchingId] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [confirmUnmatch, setConfirmUnmatch] = useState<Match | null>(null);
 
   useEffect(() => {
@@ -264,6 +295,16 @@ export default function MatchesPage() {
       await fetchAll();
     } catch (err) { console.error(err); }
     finally { setUnmatchingId(null); }
+  };
+
+  const handleCancelRequest = async (requestId: string) => {
+    if (!token) return;
+    setCancellingId(requestId);
+    try {
+      await api(`/api/matches/requests/${requestId}`, { method: 'DELETE', token });
+      await fetchAll();
+    } catch (err) { console.error(err); }
+    finally { setCancellingId(null); }
   };
 
   if (authLoading || (!user && !authLoading)) {
@@ -353,9 +394,19 @@ export default function MatchesPage() {
                     {outgoing.length === 0 ? (
                       <div className="text-sm text-center py-6" style={{ color: 'var(--text-muted)' }}>No outgoing requests</div>
                     ) : (
-                      <div className="space-y-3">
-                        {outgoing.map((req) => <OutgoingCard key={req.id} req={req} />)}
-                      </div>
+                      <AnimatePresence>
+                        <div className="space-y-3">
+                          {outgoing.map((req) => (
+                            <OutgoingCard
+                              key={req.id}
+                              req={req}
+                              isCancelling={cancellingId === req.id}
+                              cancellingDisabled={!!cancellingId}
+                              onCancel={() => handleCancelRequest(req.id)}
+                            />
+                          ))}
+                        </div>
+                      </AnimatePresence>
                     )}
                   </div>
                 </motion.div>

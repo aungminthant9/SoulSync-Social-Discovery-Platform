@@ -30,7 +30,7 @@ const CARD_STYLE: React.CSSProperties = {
 const LABEL_STYLE: React.CSSProperties = { color: '#64748B', fontSize: 12, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', margin: 0 };
 const VALUE_STYLE: React.CSSProperties = { color: '#F8FAFC', fontSize: 28, fontWeight: 700, margin: '6px 0 0', fontFamily: 'Fira Code, monospace' };
 
-function StatCard({ icon: Icon, label, value, color, sub }: { icon: any; label: string; value: number | undefined; color: string; sub?: string }) {
+function StatCard({ icon: Icon, label, value, color, sub }: { icon: React.ElementType; label: string; value: number | undefined; color: string; sub?: string }) {
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} style={CARD_STYLE}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>

@@ -22,8 +22,18 @@ import {
   MessagesSquare,
 } from 'lucide-react';
 
+type FloatingAvatarSpec = {
+  name: string;
+  hue: number;
+  top: string;
+  size: number;
+  delay: number;
+  left?: string;
+  right?: string;
+};
+
 // ── Fake floating avatar bubbles for hero visual ──────────────────────────────
-const FLOATING_AVATARS = [
+const FLOATING_AVATARS: FloatingAvatarSpec[] = [
   { name: 'Aung', hue: 340, top: '12%', left: '6%', size: 52, delay: 0 },
   { name: 'Min', hue: 200, top: '60%', left: '3%', size: 44, delay: 0.4 },
   { name: 'Zin', hue: 160, top: '30%', right: '5%', size: 48, delay: 0.2 },
@@ -179,7 +189,7 @@ export default function HomePage() {
         <div className="hidden lg:block">
           {FLOATING_AVATARS.map((a) => (
             <FloatingAvatar key={a.name} {...a}
-              style={{ top: a.top, left: (a as any).left, right: (a as any).right }} />
+              style={{ top: a.top, left: a.left, right: a.right }} />
           ))}
         </div>
 
@@ -510,7 +520,7 @@ export default function HomePage() {
               </div>
 
               <p className="mt-5 text-white/60 text-xs">
-                No credit card · Free forever · Cancel anytime
+                No credit card | Free forever | Cancel anytime
               </p>
             </div>
           </motion.div>
@@ -520,7 +530,7 @@ export default function HomePage() {
       {/* Footer note */}
       <div className="relative z-10 text-center pb-12" style={{ color: 'var(--text-muted)' }}>
         <p className="text-xs">
-          © 2026 SoulSync — AI-Enhanced Social Discovery Platform
+          &copy; 2026 SoulSync - AI-Enhanced Social Discovery Platform
         </p>
       </div>
 

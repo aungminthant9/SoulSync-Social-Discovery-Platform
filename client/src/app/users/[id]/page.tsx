@@ -9,7 +9,7 @@ import Link from 'next/link';
 import PhotoGallery from '@/components/PhotoGallery';
 import {
   MapPin, Star, Calendar, ArrowLeft, SendHorizonal, Check,
-  Loader2, EyeOff, Venus, Mars, CircleDot, MessageCircle, UserCheck, Lock, Flag, X, AlertCircle, Coins, Gift,
+  Loader2, EyeOff, Venus, Mars, CircleDot, MessageCircle, UserCheck, Lock, Flag, X, AlertCircle, Gift, ShieldBan, ShieldCheck,
 } from 'lucide-react';
 import { HOBBY_MAP } from '@/components/HobbyPicker';
 import VibeCheckModal from '@/components/VibeCheckModal';
@@ -53,6 +53,9 @@ export default function UserProfilePage() {
   const [reportDone, setReportDone] = useState(false);
   const [reportError, setReportError] = useState('');
   const [showVibeCheck, setShowVibeCheck] = useState(false);
+  const [iBlocked, setIBlocked] = useState(false);
+  const [theyBlocked, setTheyBlocked] = useState(false);
+  const [blocking, setBlocking] = useState(false);
 
   useEffect(() => { if (!authLoading && !me) router.push('/login'); }, [me, authLoading, router]);
 
@@ -62,11 +65,14 @@ export default function UserProfilePage() {
     Promise.all([
       api<{ user: PublicUser }>(`/api/users/${id}`, { token }),
       api<{ matches: { matchId: string; user: { id: string } }[] }>('/api/matches', { token }),
+      api<{ iBlocked: boolean; theyBlocked: boolean }>(`/api/blocks/status/${id}`, { token }),
     ])
-      .then(([pd, md]) => {
+      .then(([pd, md, bs]) => {
         setProfile(pd.user);
         const m = md.matches.find((m) => m.user?.id === id);
         if (m) { setExistingMatchId(m.matchId); setMatched(true); }
+        setIBlocked(bs.iBlocked);
+        setTheyBlocked(bs.theyBlocked);
       })
       .catch(() => setError('User not found.'))
       .finally(() => setLoading(false));
@@ -88,9 +94,27 @@ export default function UserProfilePage() {
     try {
       await api('/api/reports', { method: 'POST', token, body: { reportedId: id, reason: reportReason.trim() } });
       setReportDone(true);
-    } catch (err: any) {
-      setReportError(err?.message || 'Failed to submit report.');
+    } catch (err: unknown) {
+      setReportError(err instanceof Error ? err.message : 'Failed to submit report.');
     } finally { setReporting(false); }
+  };
+
+  const handleBlock = async () => {
+    if (!token) return;
+    setBlocking(true);
+    try {
+      if (iBlocked) {
+        await api(`/api/blocks/${id}`, { method: 'DELETE', token });
+        setIBlocked(false);
+      } else {
+        await api('/api/blocks', { method: 'POST', token, body: { blockedId: id } });
+        setIBlocked(true);
+        // Cancel any pending outgoing request since they're now blocked
+        setRequested(false);
+      }
+    } catch (err) {
+      console.error('Block/unblock error:', err);
+    } finally { setBlocking(false); }
   };
 
   const hue = profile?.name ? profile.name.charCodeAt(0) * 137 : 0;
@@ -254,6 +278,14 @@ export default function UserProfilePage() {
             {/* Actions */}
             {!isOwn && (
               <div className="flex flex-col gap-3">
+                {/* Block notice for viewer */}
+                {theyBlocked && (
+                  <div className="flex items-center gap-2.5 p-3.5 rounded-xl text-sm"
+                    style={{ background: 'rgba(224,82,82,0.08)', border: '1px solid rgba(224,82,82,0.2)', color: 'var(--color-error)' }}>
+                    <ShieldBan className="w-4 h-4 shrink-0" />
+                    This user has restricted who can connect with them.
+                  </div>
+                )}
                 <div className="flex gap-3">
                   {existingMatchId ? (
                     <Link href={`/chat/${existingMatchId}`}
@@ -267,7 +299,7 @@ export default function UserProfilePage() {
                     </div>
                   ) : (
                     <button onClick={handleConnect}
-                      disabled={profile.is_blurred || requested || requesting}
+                      disabled={profile.is_blurred || requested || requesting || iBlocked || theyBlocked}
                       className="flex-1 btn-primary flex items-center justify-center gap-2 py-3 text-sm font-bold rounded-xl"
                       style={requested && !requesting ? { background: 'var(--color-success)', boxShadow: 'none' } : undefined}>
                       {requesting ? <><Loader2 className="w-4 h-4 animate-spin" />Sending…</> :
@@ -288,6 +320,26 @@ export default function UserProfilePage() {
                     <span style={{ fontSize: 11, padding: '1px 8px', borderRadius: 20, background: 'rgba(212,168,83,0.15)', color: '#D4A853', fontWeight: 700, marginLeft: 2 }}>5 credits</span>
                   </button>
                 )}
+                {/* Block / Unblock button */}
+                <button
+                  type="button"
+                  onClick={handleBlock}
+                  disabled={blocking}
+                  className="flex items-center justify-center gap-1.5 text-xs py-2 rounded-xl cursor-pointer transition-all font-semibold"
+                  style={{
+                    background: iBlocked ? 'rgba(224,82,82,0.08)' : 'var(--bg-elevated)',
+                    border: `1px solid ${iBlocked ? 'rgba(224,82,82,0.25)' : 'var(--border-subtle)'}`,
+                    color: iBlocked ? 'var(--color-error)' : 'var(--text-muted)',
+                  }}
+                >
+                  {blocking ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : iBlocked ? (
+                    <><ShieldCheck className="w-3.5 h-3.5" /> Unblock {profile.name}</>
+                  ) : (
+                    <><ShieldBan className="w-3.5 h-3.5" /> Block {profile.name}</>
+                  )}
+                </button>
                 {/* Report button */}
                 <button
                   type="button"
@@ -423,4 +475,3 @@ export default function UserProfilePage() {
     </div>
   );
 }
-

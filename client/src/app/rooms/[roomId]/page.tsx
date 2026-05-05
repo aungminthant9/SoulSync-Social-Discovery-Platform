@@ -51,10 +51,20 @@ type RoomMember = {
 };
 
 function Avatar({ name, avatar_url, size = 8 }: { name: string; avatar_url?: string | null; size?: number }) {
+  const [imgError, setImgError] = useState(false);
   const hue = name ? name.charCodeAt(0) * 137 : 0;
   const bg = `hsl(${hue % 360}, 60%, 55%)`;
   const dim = `${size * 4}px`;
-  if (avatar_url) return <img src={avatar_url} alt={name} className="rounded-full object-cover shrink-0" style={{ width: dim, height: dim }} />;
+  if (avatar_url && !imgError)
+    return (
+      <img
+        src={avatar_url}
+        alt={name}
+        className="rounded-full object-cover shrink-0"
+        style={{ width: dim, height: dim }}
+        onError={() => setImgError(true)}
+      />
+    );
   return (
     <div className="rounded-full flex items-center justify-center font-bold text-white shrink-0"
       style={{ width: dim, height: dim, background: bg, fontSize: size < 8 ? 10 : 13 }}>
@@ -62,6 +72,7 @@ function Avatar({ name, avatar_url, size = 8 }: { name: string; avatar_url?: str
     </div>
   );
 }
+
 
 // ── Confirm Dialog ─────────────────────────────────────────────────────────────
 function ConfirmDialog({

@@ -292,7 +292,7 @@ export default function EarnCreditsPage() {
             <div>
               <p style={{ margin: 0, fontWeight: 700, color: '#22c55e', fontSize: 14 }}>All done for today! 🎉</p>
               <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 12, marginTop: 2 }}>
-                You've watched all {adStatus?.max_per_day} ads. Come back tomorrow for more credits!
+                You&apos;ve watched all {adStatus?.max_per_day} ads. Come back tomorrow for more credits!
               </p>
             </div>
           </motion.div>

@@ -27,8 +27,8 @@
   --color-warning: #D4A853;
 
   /* Fonts */
-  --font-sans: var(--font-outfit);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Consolas", "SFMono-Regular", "Liberation Mono", monospace;
 }
 
 /* ============================================

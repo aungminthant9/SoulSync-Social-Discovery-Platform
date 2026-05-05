@@ -50,11 +50,19 @@ function MiniAvatar({
   avatarUrl?: string | null;
   show: boolean;
 }) {
+  const [imgError, setImgError] = useState(false);
   const hue = name ? name.charCodeAt(0) * 137 : 0;
   const bg = `hsl(${hue % 360}, 60%, 55%)`;
   if (!show) return <div className="w-7 h-7 shrink-0" />;
-  if (avatarUrl)
-    return <img src={avatarUrl} alt={name} className="w-7 h-7 rounded-full object-cover shrink-0" />;
+  if (avatarUrl && !imgError)
+    return (
+      <img
+        src={avatarUrl}
+        alt={name}
+        className="w-7 h-7 rounded-full object-cover shrink-0"
+        onError={() => setImgError(true)}
+      />
+    );
   return (
     <div
       className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
