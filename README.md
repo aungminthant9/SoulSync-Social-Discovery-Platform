@@ -192,7 +192,6 @@ The current AI implementation uses the Groq SDK and Llama-family models in the s
 |   +-- tests                # Unit and integration tests
 |   +-- index.js
 |   +-- package.json
-+-- AGENTS.md
 +-- README.md
 ```
 
